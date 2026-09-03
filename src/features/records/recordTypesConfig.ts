@@ -84,6 +84,22 @@ export function getRecordTypeConfig(recordType: RecordType): RecordTypeConfig | 
   return DETAIL_RECORD_TYPES.find((c) => c.recordType === recordType);
 }
 
+export function getFieldsForRecordType(recordType: RecordType): RecordTypeField[] {
+  if (recordType === 'general_observation') return QUICK_CHECK_FIELDS;
+  return getRecordTypeConfig(recordType)?.fields ?? [];
+}
+
+export function getFieldLabel(recordType: RecordType, fieldKey: string): string {
+  return getFieldsForRecordType(recordType).find((f) => f.key === fieldKey)?.label ?? fieldKey;
+}
+
+export const VALUE_STATE_LABELS: Record<'present' | 'absent' | 'unknown' | 'unset', string> = {
+  present: '있음',
+  absent: '없음',
+  unknown: '확인 안 함',
+  unset: '미입력',
+};
+
 export const RECORD_TYPE_LABELS: Record<RecordType, string> = {
   general_observation: '빠른 내검',
   pest_disease: '병해충',

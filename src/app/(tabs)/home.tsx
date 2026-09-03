@@ -112,7 +112,7 @@ export default function HomeScreen() {
           </Card>
         )}
         {recentColonies?.map(({ colony, apiaryName }) => (
-          <Card key={colony.id} onPress={() => router.push({ pathname: '/(tabs)/colonies/[colonyId]', params: { colonyId: colony.id } })}>
+          <Card key={colony.id} onPress={() => router.push({ pathname: '/(tabs)/colonies/[colonyId]/detail', params: { colonyId: colony.id } })}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.md, color: colors.textPrimary }}>{colony.alias}</Text>

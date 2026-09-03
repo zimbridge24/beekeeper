@@ -1,19 +1,20 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 
-import { Button } from '../../../components/Button';
-import { Card } from '../../../components/Card';
-import { ColonyForm, ColonyFormValues } from '../../../components/ColonyForm';
-import { Screen } from '../../../components/Screen';
-import { ScreenHeader } from '../../../components/ScreenHeader';
-import { records } from '../../../db/schema';
-import { RECORD_TYPE_LABELS } from '../../../features/records/recordTypesConfig';
-import { useApiary } from '../../../repositories/apiaryRepository';
-import { setColonyArchived, updateColony, useColony } from '../../../repositories/colonyRepository';
-import { useRecordFieldValues, useRecordsForColony } from '../../../repositories/recordRepository';
-import { ensureActiveVisit } from '../../../repositories/visitRepository';
-import { colors, fontFamilies, fontSizes, spacing } from '../../../theme/tokens';
+import { Button } from '../../../../components/Button';
+import { Card } from '../../../../components/Card';
+import { ColonyForm, ColonyFormValues } from '../../../../components/ColonyForm';
+import { ForwardChevronIcon } from '../../../../components/icons';
+import { Screen } from '../../../../components/Screen';
+import { ScreenHeader } from '../../../../components/ScreenHeader';
+import { records } from '../../../../db/schema';
+import { RECORD_TYPE_LABELS } from '../../../../features/records/recordTypesConfig';
+import { useApiary } from '../../../../repositories/apiaryRepository';
+import { setColonyArchived, updateColony, useColony } from '../../../../repositories/colonyRepository';
+import { useRecordFieldValues, useRecordsForColony } from '../../../../repositories/recordRepository';
+import { ensureActiveVisit } from '../../../../repositories/visitRepository';
+import { colors, fontFamilies, fontSizes, spacing } from '../../../../theme/tokens';
 
 function RecordCard({ record }: { record: typeof records.$inferSelect }) {
   const { data: fieldValues } = useRecordFieldValues(record.id);
@@ -77,6 +78,8 @@ export default function ColonyDetailScreen() {
     }
   };
 
+  const recentRecords = colonyRecords?.slice(0, 3);
+
   return (
     <Screen scroll={false} padded={false}>
       <ScreenHeader title="봉군 상세" onBack={() => router.back()} />
@@ -105,19 +108,35 @@ export default function ColonyDetailScreen() {
 
             <Button label="빠른 상태 선택으로 내검하기" onPress={handleQuickCheck} loading={startingCheck} />
 
+            <Pressable onPress={() => router.push({ pathname: '/(tabs)/colonies/[colonyId]/health', params: { colonyId } })}>
+              <Card size="medium" tint={colors.surfaceTint}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: colors.primary }}>
+                    봉군 건강 변화 보기
+                  </Text>
+                  <ForwardChevronIcon color={colors.primary} />
+                </View>
+              </Card>
+            </Pressable>
+
             <View>
-              <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodyLg, color: colors.textPrimary }}>
-                최근 기록 {colonyRecords ? `(${colonyRecords.length}건)` : ''}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodyLg, color: colors.textPrimary }}>
+                  최근 기록 {colonyRecords ? `(${colonyRecords.length}건)` : ''}
+                </Text>
+                <Pressable onPress={() => router.push({ pathname: '/(tabs)/colonies/[colonyId]/timeline', params: { colonyId } })}>
+                  <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.primary }}>전체보기</Text>
+                </Pressable>
+              </View>
               <View style={{ gap: spacing.sm, marginTop: spacing.md }}>
-                {colonyRecords?.length === 0 && (
+                {recentRecords?.length === 0 && (
                   <Card size="large">
                     <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary }}>
                       아직 기록이 없어요.
                     </Text>
                   </Card>
                 )}
-                {colonyRecords?.map((record) => (
+                {recentRecords?.map((record) => (
                   <RecordCard key={record.id} record={record} />
                 ))}
               </View>

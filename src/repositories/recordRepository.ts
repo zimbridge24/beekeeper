@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, inArray } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { randomUUID } from 'expo-crypto';
 
@@ -96,5 +96,18 @@ export function useRecordFieldValues(recordId: string | undefined) {
       .from(recordFieldValues)
       .where(eq(recordFieldValues.recordId, recordId ?? '')),
     [recordId],
+  );
+}
+
+// Fetches all field values for a known set of record ids in one query, so a
+// screen that needs to aggregate across several records (e.g. a trend chart)
+// doesn't have to call useRecordFieldValues once per record in a loop.
+export function useFieldValuesForRecordIds(recordIds: string[]) {
+  return useLiveQuery(
+    db
+      .select()
+      .from(recordFieldValues)
+      .where(recordIds.length > 0 ? inArray(recordFieldValues.recordId, recordIds) : eq(recordFieldValues.id, '')),
+    [recordIds.join(',')],
   );
 }

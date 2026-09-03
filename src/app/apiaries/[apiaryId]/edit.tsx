@@ -80,7 +80,7 @@ export default function ApiaryEditScreen() {
             {colonies?.map((colony) => (
               <Card
                 key={colony.id}
-                onPress={() => router.push({ pathname: '/(tabs)/colonies/[colonyId]', params: { colonyId: colony.id } })}
+                onPress={() => router.push({ pathname: '/(tabs)/colonies/[colonyId]/detail', params: { colonyId: colony.id } })}
               >
                 <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.md, color: colors.textPrimary }}>{colony.alias}</Text>
                 <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.sm, color: colors.textMuted, marginTop: 4 }}>

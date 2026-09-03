@@ -36,7 +36,7 @@ export default function ColoniesListScreen() {
         {colonies?.map(({ colony, apiaryName }) => (
           <Card
             key={colony.id}
-            onPress={() => router.push({ pathname: '/(tabs)/colonies/[colonyId]', params: { colonyId: colony.id } })}
+            onPress={() => router.push({ pathname: '/(tabs)/colonies/[colonyId]/detail', params: { colonyId: colony.id } })}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <View style={{ flex: 1 }}>
