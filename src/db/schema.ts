@@ -58,6 +58,128 @@ export const colonies = sqliteTable(
   ],
 );
 
+export const visits = sqliteTable(
+  'visits',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    apiaryId: text('apiary_id')
+      .notNull()
+      .references(() => apiaries.id),
+    startedAt: integer('started_at').notNull(),
+    endedAt: integer('ended_at'),
+    status: text('status').notNull().default('in_progress'),
+    latitude: real('latitude'),
+    longitude: real('longitude'),
+    deletedAt: integer('deleted_at'),
+    ...syncColumns(),
+  },
+  (t) => [
+    index('visits_apiary_idx').on(t.apiaryId, t.startedAt),
+    check('visits_status_check', sql`${t.status} IN ('in_progress','completed')`),
+    check('visits_sync_status_check', sql`${t.syncStatus} IN ('기기 내 저장','동기화 중','동기화 완료','동기화 실패')`),
+  ],
+);
+
+// Junction driving the multi-colony visit queue/progress: a visit walks a
+// planned, ordered set of colonies, not just an ad-hoc list.
+export const visitColonies = sqliteTable(
+  'visit_colonies',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    visitId: text('visit_id')
+      .notNull()
+      .references(() => visits.id),
+    colonyId: text('colony_id')
+      .notNull()
+      .references(() => colonies.id),
+    sequenceOrder: integer('sequence_order').notNull(),
+    status: text('status').notNull().default('pending'),
+    ...syncColumns(),
+  },
+  (t) => [
+    index('visit_colonies_visit_idx').on(t.visitId, t.sequenceOrder),
+    uniqueIndex('visit_colonies_unique').on(t.visitId, t.colonyId),
+    check('visit_colonies_status_check', sql`${t.status} IN ('pending','in_progress','done','skipped')`),
+    check('visit_colonies_sync_status_check', sql`${t.syncStatus} IN ('기기 내 저장','동기화 중','동기화 완료','동기화 실패')`),
+  ],
+);
+
+export const RECORD_TYPE_VALUES = [
+  'general_observation',
+  'pest_disease',
+  'feeding',
+  'treatment',
+  'honey_harvest',
+  'swarm_split_requeen',
+  'wintering_dissolution',
+] as const;
+export type RecordType = (typeof RECORD_TYPE_VALUES)[number];
+
+export const records = sqliteTable(
+  'records',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    visitId: text('visit_id')
+      .notNull()
+      .references(() => visits.id),
+    colonyId: text('colony_id')
+      .notNull()
+      .references(() => colonies.id),
+    inputMethod: text('input_method').notNull(),
+    recordType: text('record_type').notNull(),
+    confirmationStatus: text('confirmation_status').notNull().default('confirmed'),
+    notes: text('notes'),
+    occurredAt: integer('occurred_at').notNull(),
+    deletedAt: integer('deleted_at'),
+    ...syncColumns(),
+  },
+  (t) => [
+    index('records_colony_idx').on(t.colonyId, t.occurredAt),
+    index('records_visit_idx').on(t.visitId),
+    check('records_input_method_check', sql`${t.inputMethod} IN ('voice_ai','quick_select')`),
+    check(
+      'records_record_type_check',
+      sql`${t.recordType} IN ('general_observation','pest_disease','feeding','treatment','honey_harvest','swarm_split_requeen','wintering_dissolution')`,
+    ),
+    check('records_confirmation_status_check', sql`${t.confirmationStatus} IN ('draft','confirmed')`),
+    check('records_sync_status_check', sql`${t.syncStatus} IN ('기기 내 저장','동기화 중','동기화 완료','동기화 실패')`),
+  ],
+);
+
+// One row per config-defined field per record — lets field sets differ per
+// record_type without schema changes, and makes the tri-state distinction
+// (있음/없음/확인하지 않음 vs 미입력) explicit: every field for a record_type
+// is inserted as 'unset' at creation time, so a missing row is never
+// possible and can't be confused with an explicit "확인하지 않음" answer.
+export const recordFieldValues = sqliteTable(
+  'record_field_values',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    recordId: text('record_id')
+      .notNull()
+      .references(() => records.id),
+    category: text('category').notNull(),
+    fieldKey: text('field_key').notNull(),
+    valueState: text('value_state').notNull().default('unset'),
+    valueText: text('value_text'),
+    valueNumber: real('value_number'),
+    ...syncColumns(),
+  },
+  (t) => [
+    uniqueIndex('record_field_values_unique').on(t.recordId, t.fieldKey),
+    check('record_field_values_category_check', sql`${t.category} IN ('observation','problem','action','result')`),
+    check('record_field_values_state_check', sql`${t.valueState} IN ('present','absent','unknown','unset')`),
+    check(
+      'record_field_values_sync_status_check',
+      sql`${t.syncStatus} IN ('기기 내 저장','동기화 중','동기화 완료','동기화 실패')`,
+    ),
+  ],
+);
+
 // --- Local-only sync bookkeeping (never pushed to Supabase) ---
 
 export const outbox = sqliteTable(

@@ -4,8 +4,8 @@
 Expo SQLite가 유일한 local source of truth이고, UI는 오직 로컬 SQLite만 읽고 씁니다. Supabase와의
 동기화는 완전히 분리된 별도 레이어(`src/sync/`)가 담당합니다.
 
-이번 커밋은 **파운데이션 + 핵심 검증 슬라이스**입니다: 전체 26개 화면 중 인증·양봉장/봉군 CRUD·
-오프라인 동기화·충돌 해결까지만 구현되어 있고, 방문 기록·음성 AI 내검·이력 화면은 다음 단계입니다.
+전체 26개 화면 중 인증·양봉장/봉군 CRUD·오프라인 동기화·충돌 해결·방문 시작·빠른 선택형 기록까지
+구현되어 있고, 음성 AI 내검·봉군 이력/건강 변화 화면은 다음 단계입니다.
 
 ## 시작하기
 
@@ -20,8 +20,8 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=<Supabase 대시보드 → Project Settings → AP
 
 ### 2. Supabase 스키마 적용
 
-`supabase/migrations/0001_init.sql`을 Supabase 대시보드의 SQL Editor에 붙여넣어 실행하거나,
-Supabase CLI가 프로젝트에 연결되어 있다면:
+`supabase/migrations/0001_init.sql`과 `0002_visits_records.sql`을 **순서대로** Supabase
+대시보드의 SQL Editor에 붙여넣어 실행하거나, Supabase CLI가 프로젝트에 연결되어 있다면:
 
 ```bash
 supabase db push
@@ -94,9 +94,12 @@ supabase secrets set SEND_SMS_HOOK_SECRET="v1,whsec_..."
 3. 비행기 모드 해제 → 자동 동기화 → "동기화 완료" 확인 (`/sync/status`)
 4. 같은 계정으로 다른 기기(또는 Supabase 대시보드에서 직접)에서 같은 봉군을 다르게 수정 →
    두 기기 모두 온라인 상태로 동기화 → 충돌 배너 확인 → `/sync/conflicts`에서 해결
+5. 홈에서 "오늘 내검 시작하기" (또는 봉군 상세에서 "빠른 상태 선택으로 내검하기") → 여러
+   항목 있음/없음/확인 안 함으로 선택 → 저장 → 연속 내검 현황 화면에서 완료 표시 확인 →
+   동기화 후 Supabase `records`/`record_field_values` 테이블에 데이터 확인
 
 ## 다음 단계
 
-방문 시작 · 음성 녹음 · AI 구조화 검토 · 빠른 선택 입력 · 봉군 이력/건강 변화 화면은 아직
-구현되지 않았습니다 (`records`, `record_field_values`, `record_transcripts`, `photos`,
-`visits`, `visit_colonies` 테이블 설계는 완료되어 있으나 마이그레이션에는 포함하지 않았습니다).
+음성 녹음 · AI 구조화 검토 · 봉군 이력/건강 변화 화면 · 사진 첨부는 아직 구현되지 않았습니다
+(`record_transcripts`, `photos` 테이블 설계는 완료되어 있으나 마이그레이션에는 포함하지
+않았습니다).

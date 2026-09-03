@@ -5,7 +5,7 @@ import { randomUUID } from 'expo-crypto';
 import { db } from '../db/client';
 import { outbox, syncConflicts } from '../db/schema';
 import { DbOrTx } from './outbox';
-import { fromRemoteRow, SyncableTableName, SYNCABLE_TABLE_NAMES, upsertLocalRow } from './tables';
+import { fromRemoteRow, SyncableTableName, SYNCABLE_TABLE_NAMES, upsertLocalValues } from './tables';
 
 export async function recordConflict(
   tx: DbOrTx,
@@ -75,7 +75,7 @@ export async function resolveConflict(
         ...fromRemoteRow(tableName, { ...finalPayload, updated_at: new Date(now).toISOString() }),
         syncStatus: '기기 내 저장' as const,
       };
-      await upsertLocalRow(tx, tableName, localColumns);
+      await upsertLocalValues(tx, tableName, localColumns);
     }
 
     await tx.delete(outbox).where(eq(outbox.entityId, conflict.entityId));

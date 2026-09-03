@@ -8,6 +8,13 @@
       "when": 1788369864276,
       "tag": "0000_perfect_frank_castle",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1788432090071,
+      "tag": "0001_hesitant_natasha_romanoff",
+      "breakpoints": true
     }
   ]
 }

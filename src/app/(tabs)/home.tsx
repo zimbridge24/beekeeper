@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { useAuth } from '../../auth/AuthProvider';
@@ -9,9 +10,9 @@ import { HamburgerIcon } from '../../components/icons';
 import { Screen } from '../../components/Screen';
 import { useApiaries } from '../../repositories/apiaryRepository';
 import { useColonyCount, useRecentColoniesWithApiary } from '../../repositories/colonyRepository';
+import { ensureActiveVisit } from '../../repositories/visitRepository';
 import { useSyncSummary } from '../../sync/useSyncSummary';
 import { colors, fontFamilies, fontSizes, spacing } from '../../theme/tokens';
-import { useEffect, useState } from 'react';
 
 export default function HomeScreen() {
   const { userId } = useAuth();
@@ -20,6 +21,7 @@ export default function HomeScreen() {
   const { data: recentColonies } = useRecentColoniesWithApiary(5);
   const { data: colonyCountRows } = useColonyCount();
   const { pendingCount, conflictCount } = useSyncSummary();
+  const [startingVisit, setStartingVisit] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
@@ -28,6 +30,21 @@ export default function HomeScreen() {
 
   const displayName = email ? email.split('@')[0] : '양봉가';
   const totalColonies = colonyCountRows?.[0]?.value;
+
+  const handleStartVisit = async () => {
+    if (!apiaries || apiaries.length === 0) return;
+    if (apiaries.length > 1) {
+      router.push('/apiaries');
+      return;
+    }
+    setStartingVisit(true);
+    try {
+      const visitId = await ensureActiveVisit(apiaries[0].id);
+      router.push({ pathname: '/visits/[visitId]/progress', params: { visitId } });
+    } finally {
+      setStartingVisit(false);
+    }
+  };
 
   return (
     <Screen>
@@ -108,6 +125,9 @@ export default function HomeScreen() {
         ))}
       </View>
 
+      {totalColonies !== undefined && totalColonies > 0 && (
+        <Button label="오늘 내검 시작하기" onPress={handleStartVisit} loading={startingVisit} />
+      )}
       <Button label="양봉장·봉군 관리" variant="surface" onPress={() => router.push('/apiaries')} />
     </Screen>
   );

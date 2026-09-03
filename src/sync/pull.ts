@@ -7,7 +7,7 @@ import { supabase } from '../supabase/client';
 import { recordConflict } from './conflicts';
 import { getCursorValue, setCursorValue } from './cursors';
 import { DbOrTx } from './outbox';
-import { fromRemoteRow, SyncableTableName, SYNCABLE_TABLE_NAMES, upsertLocalRow } from './tables';
+import { SyncableTableName, SYNCABLE_TABLE_NAMES, upsertLocalRow } from './tables';
 
 const PAGE_SIZE = 200;
 
@@ -81,5 +81,9 @@ async function applyRemoteRow(tx: DbOrTx, tableName: SyncableTableName, row: Rec
     return;
   }
 
-  await upsertLocalRow(tx, tableName, fromRemoteRow(tableName, row));
+  // upsertLocalRow does its own snake_case -> camelCase mapping internally
+  // (via each table's fromRemoteRow) — row here must stay the raw remote
+  // row, not pre-mapped, or every field name gets read from the wrong
+  // (already-camelCase) shape and comes back undefined.
+  await upsertLocalRow(tx, tableName, row);
 }
