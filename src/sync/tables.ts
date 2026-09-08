@@ -1,14 +1,22 @@
 import { eq } from 'drizzle-orm';
 
 import { db } from '../db/client';
-import { apiaries, colonies, records, recordFieldValues, SyncStatus, visitColonies, visits } from '../db/schema';
+import { apiaries, colonies, records, recordFieldValues, recordTranscripts, SyncStatus, visitColonies, visits } from '../db/schema';
 import { DbOrTx } from './outbox';
 import { toIso } from './timestamps';
 
 type RemoteRow = Record<string, unknown>;
 
 // FK-safe order: parents before children.
-export const SYNCABLE_TABLE_NAMES = ['apiaries', 'colonies', 'visits', 'visit_colonies', 'records', 'record_field_values'] as const;
+export const SYNCABLE_TABLE_NAMES = [
+  'apiaries',
+  'colonies',
+  'visits',
+  'visit_colonies',
+  'records',
+  'record_field_values',
+  'record_transcripts',
+] as const;
 export type SyncableTableName = (typeof SYNCABLE_TABLE_NAMES)[number];
 
 function toEpochMs(value: unknown): number | null {
@@ -153,6 +161,13 @@ function fromVisitRemoteRow(row: RemoteRow) {
     status: row.status as string,
     latitude: (row.latitude as number) ?? null,
     longitude: (row.longitude as number) ?? null,
+    weatherObservedAt: toEpochMs(row.weather_observed_at),
+    temperatureC: (row.temperature_c as number) ?? null,
+    humidityPercent: (row.humidity_percent as number) ?? null,
+    precipitationMm: (row.precipitation_mm as number) ?? null,
+    windSpeedMs: (row.wind_speed_ms as number) ?? null,
+    weatherCode: (row.weather_code as string) ?? null,
+    weatherSource: (row.weather_source as string) ?? null,
     deletedAt: toEpochMs(row.deleted_at),
     createdAt: toEpochMs(row.created_at) ?? Date.now(),
     updatedAt: toEpochMs(row.updated_at) ?? Date.now(),
@@ -171,6 +186,13 @@ export function toVisitRemotePayload(row: typeof visits.$inferSelect) {
     status: row.status,
     latitude: row.latitude,
     longitude: row.longitude,
+    weather_observed_at: toIso(row.weatherObservedAt),
+    temperature_c: row.temperatureC,
+    humidity_percent: row.humidityPercent,
+    precipitation_mm: row.precipitationMm,
+    wind_speed_ms: row.windSpeedMs,
+    weather_code: row.weatherCode,
+    weather_source: row.weatherSource,
     deleted_at: toIso(row.deletedAt),
     created_at: toIso(row.createdAt),
     updated_at: toIso(row.updatedAt),
@@ -273,6 +295,41 @@ export function toRecordFieldValueRemotePayload(row: typeof recordFieldValues.$i
   };
 }
 
+// audio_local_uri is deliberately excluded here — it's a local-only device
+// file path, never mirrored to Supabase. Omitting the key means an
+// onConflictDoUpdate leaves the existing local value untouched.
+function fromRecordTranscriptRemoteRow(row: RemoteRow) {
+  return {
+    id: row.id as string,
+    userId: row.user_id as string,
+    recordId: row.record_id as string,
+    audioRemotePath: (row.audio_remote_path as string) ?? null,
+    audioDurationSec: (row.audio_duration_sec as number) ?? null,
+    rawTranscript: (row.raw_transcript as string) ?? null,
+    structuringStatus: row.structuring_status as string,
+    aiConfidenceScore: (row.ai_confidence_score as number) ?? null,
+    createdAt: toEpochMs(row.created_at) ?? Date.now(),
+    updatedAt: toEpochMs(row.updated_at) ?? Date.now(),
+    syncStatus: '동기화 완료' as SyncStatus,
+    lastSyncedAt: Date.now() as number | null,
+  };
+}
+
+export function toRecordTranscriptRemotePayload(row: typeof recordTranscripts.$inferSelect) {
+  return {
+    id: row.id,
+    user_id: row.userId,
+    record_id: row.recordId,
+    audio_remote_path: row.audioRemotePath,
+    audio_duration_sec: row.audioDurationSec,
+    raw_transcript: row.rawTranscript,
+    structuring_status: row.structuringStatus,
+    ai_confidence_score: row.aiConfidenceScore,
+    created_at: toIso(row.createdAt),
+    updated_at: toIso(row.updatedAt),
+  };
+}
+
 const ENTITY_ADAPTERS: Record<SyncableTableName, EntityAdapter> = {
   apiaries: makeAdapter(apiaries, fromApiaryRemoteRow, toApiaryRemotePayload as never),
   colonies: makeAdapter(colonies, fromColonyRemoteRow, toColonyRemotePayload as never),
@@ -280,6 +337,7 @@ const ENTITY_ADAPTERS: Record<SyncableTableName, EntityAdapter> = {
   visit_colonies: makeAdapter(visitColonies, fromVisitColonyRemoteRow, toVisitColonyRemotePayload as never),
   records: makeAdapter(records, fromRecordRemoteRow, toRecordRemotePayload as never),
   record_field_values: makeAdapter(recordFieldValues, fromRecordFieldValueRemoteRow, toRecordFieldValueRemotePayload as never),
+  record_transcripts: makeAdapter(recordTranscripts, fromRecordTranscriptRemoteRow, toRecordTranscriptRemotePayload as never),
 };
 
 // Maps a Supabase row (snake_case, timestamptz strings) to a Drizzle insert

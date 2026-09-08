@@ -40,7 +40,7 @@ export default function HomeScreen() {
     setStartingVisit(true);
     try {
       const visitId = await ensureActiveVisit(apiaries[0].id);
-      router.push({ pathname: '/visits/[visitId]/progress', params: { visitId } });
+      router.push({ pathname: '/visits/[visitId]/voice-record', params: { visitId } });
     } finally {
       setStartingVisit(false);
     }

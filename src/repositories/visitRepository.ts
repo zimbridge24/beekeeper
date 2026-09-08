@@ -4,9 +4,11 @@ import { randomUUID } from 'expo-crypto';
 
 import { getCurrentUserId } from '../auth/currentUser';
 import { db } from '../db/client';
-import { colonies, visitColonies, visits } from '../db/schema';
+import { apiaries, colonies, visitColonies, visits } from '../db/schema';
+import { getDeviceLocation } from '../location/getDeviceLocation';
 import { enqueueOutbox } from '../sync/outbox';
 import { toVisitColonyRemotePayload, toVisitRemotePayload } from '../sync/tables';
+import { weatherProvider } from '../weather';
 
 export function useActiveVisit(apiaryId: string | undefined) {
   return useLiveQuery(
@@ -89,7 +91,80 @@ export async function startVisit(apiaryId: string, location?: { latitude: number
     });
   });
 
+  // Fire-and-forget: GPS + weather capture shouldn't delay navigation into
+  // the recording screen. Best-effort only — see captureVisitContext. Always
+  // runs (not gated on `location` being absent) — weather must be captured
+  // regardless of whether the caller already supplied a location, since the
+  // two used to be wrongly conflated here (a caller-supplied location would
+  // have skipped weather capture entirely).
+  void captureVisitContext(visitId, apiaryId, location);
+
   return visitId;
+}
+
+// Runs once per newly-created visit to fill in the location/weather columns
+// that startVisit couldn't populate synchronously. Location: the caller-
+// supplied location if given, else live GPS, else the apiary's registered
+// coordinates. Weather: a single snapshot fetched right now and stored
+// permanently — never re-fetched or looked up later, so it reflects
+// conditions AT inspection time even if the provider's historical data
+// later becomes unavailable.
+async function captureVisitContext(
+  visitId: string,
+  apiaryId: string,
+  knownLocation?: { latitude: number; longitude: number },
+): Promise<void> {
+  try {
+    let location = knownLocation ?? (await getDeviceLocation());
+    if (!location) {
+      const [apiary] = await db.select().from(apiaries).where(eq(apiaries.id, apiaryId)).limit(1);
+      if (apiary?.latitude != null && apiary?.longitude != null) {
+        location = { latitude: apiary.latitude, longitude: apiary.longitude };
+      }
+    }
+    if (!location) {
+      console.warn('[weather] no device location and apiary has no registered coordinates — skipping capture');
+      return;
+    }
+    const resolvedLocation = location;
+
+    const snapshot = await weatherProvider
+      .fetchSnapshot(resolvedLocation.latitude, resolvedLocation.longitude)
+      .catch((err) => {
+        console.warn('[weather] fetchSnapshot failed:', err instanceof Error ? err.message : JSON.stringify(err));
+        return null;
+      });
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(visits)
+        .set({
+          latitude: resolvedLocation.latitude,
+          longitude: resolvedLocation.longitude,
+          ...(snapshot
+            ? {
+                weatherObservedAt: snapshot.observedAt,
+                temperatureC: snapshot.temperatureC,
+                humidityPercent: snapshot.humidityPercent,
+                precipitationMm: snapshot.precipitationMm,
+                windSpeedMs: snapshot.windSpeedMs,
+                weatherCode: snapshot.weatherCode,
+                weatherSource: snapshot.source,
+              }
+            : {}),
+          updatedAt: Date.now(),
+          syncStatus: '기기 내 저장',
+        })
+        .where(eq(visits.id, visitId));
+      const [row] = await tx.select().from(visits).where(eq(visits.id, visitId)).limit(1);
+      await enqueueOutbox(tx, { entityTable: 'visits', entityId: visitId, op: 'update', payload: toVisitRemotePayload(row) });
+    });
+  } catch (err) {
+    // GPS 거부, 오프라인, 업체 응답 실패 등 무엇이든 방문 생성 자체를 막거나
+    // 사용자에게 노출되어서는 안 된다 — best-effort 캡처. 그래도 콘솔에는
+    // 남겨서 디버깅은 가능하게 한다.
+    console.warn('[weather] captureVisitContext failed:', err instanceof Error ? err.message : JSON.stringify(err));
+  }
 }
 
 // Insert-or-update: the visit_colonies row may not exist yet the first time

@@ -5,7 +5,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Button } from '../../../../components/Button';
 import { Card } from '../../../../components/Card';
 import { ColonyForm, ColonyFormValues } from '../../../../components/ColonyForm';
-import { ForwardChevronIcon } from '../../../../components/icons';
+import { ForwardChevronIcon, MicIcon } from '../../../../components/icons';
 import { Screen } from '../../../../components/Screen';
 import { ScreenHeader } from '../../../../components/ScreenHeader';
 import { records } from '../../../../db/schema';
@@ -47,6 +47,7 @@ export default function ColonyDetailScreen() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [startingCheck, setStartingCheck] = useState(false);
+  const [startingVoiceCheck, setStartingVoiceCheck] = useState(false);
 
   if (!colony) {
     return (
@@ -75,6 +76,16 @@ export default function ColonyDetailScreen() {
       router.push({ pathname: '/visits/[visitId]/[colonyId]/quick-check', params: { visitId, colonyId: colony.id } });
     } finally {
       setStartingCheck(false);
+    }
+  };
+
+  const handleVoiceCheck = async () => {
+    setStartingVoiceCheck(true);
+    try {
+      const visitId = await ensureActiveVisit(colony.apiaryId);
+      router.push({ pathname: '/visits/[visitId]/voice-record', params: { visitId, colonyId: colony.id } });
+    } finally {
+      setStartingVoiceCheck(false);
     }
   };
 
@@ -107,6 +118,7 @@ export default function ColonyDetailScreen() {
             </Card>
 
             <Button label="빠른 상태 선택으로 내검하기" onPress={handleQuickCheck} loading={startingCheck} />
+            <Button label="AI 음성으로 내검하기" variant="accent" onPress={handleVoiceCheck} loading={startingVoiceCheck} icon={<MicIcon size={18} />} />
 
             <Pressable onPress={() => router.push({ pathname: '/(tabs)/colonies/[colonyId]/health', params: { colonyId } })}>
               <Card size="medium" tint={colors.surfaceTint}>
@@ -141,12 +153,6 @@ export default function ColonyDetailScreen() {
                 ))}
               </View>
             </View>
-
-            <Card size="large">
-              <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary, lineHeight: 20 }}>
-                음성 내검 기능은 다음 업데이트에서 제공됩니다.
-              </Text>
-            </Card>
 
             <View style={{ gap: spacing.md }}>
               <Button label="정보 수정" variant="surface" onPress={() => setEditing(true)} />

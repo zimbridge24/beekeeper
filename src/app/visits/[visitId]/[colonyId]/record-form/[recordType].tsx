@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ScrollView, View } from 'react-native';
 
 import { Button } from '../../../../../components/Button';
+import { PhotoPicker, PickedPhoto } from '../../../../../components/PhotoPicker';
 import { Screen } from '../../../../../components/Screen';
 import { ScreenHeader } from '../../../../../components/ScreenHeader';
 import { TriState, TriStateField } from '../../../../../components/TriStateField';
@@ -24,6 +25,7 @@ export default function RecordFormScreen() {
   const config = getRecordTypeConfig(recordType);
 
   const [values, setValues] = useState<Record<string, TriState>>({});
+  const [photos, setPhotos] = useState<PickedPhoto[]>([]);
   const [saving, setSaving] = useState(false);
 
   const setField = (key: string, state: TriState) => setValues((prev) => ({ ...prev, [key]: state }));
@@ -45,9 +47,10 @@ export default function RecordFormScreen() {
         recordType,
         fields: config.fields,
         values: values as Record<string, FieldValueState>,
+        photos,
       });
       await upsertVisitColonyStatus(visitId, colonyId, 'done');
-      router.replace({ pathname: '/visits/[visitId]/[colonyId]/saved', params: { visitId, colonyId, recordTypeTitle: config.title } });
+      router.replace({ pathname: '/visits/[visitId]/saved', params: { visitId, colonyId, recordTypeTitle: config.title } });
     } finally {
       setSaving(false);
     }
@@ -61,6 +64,8 @@ export default function RecordFormScreen() {
           {config.fields.map((field) => (
             <TriStateField key={field.key} label={field.label} value={values[field.key]} onChange={(v) => setField(field.key, v)} />
           ))}
+
+          <PhotoPicker photos={photos} onChange={setPhotos} />
         </View>
         <View style={{ height: 100 }} />
       </ScrollView>

@@ -5,13 +5,14 @@ import { db, resetLocalDatabase } from '../db/client';
 import { users } from '../db/schema';
 import { supabase } from '../supabase/client';
 import { setCurrentUserId } from './currentUser';
-import { signOut as signOutSession, upsertLocalUser } from './session';
+import { deleteAccount as deleteAccountSession, signOut as signOutSession, upsertLocalUser } from './session';
 
 type AuthContextValue = {
   isReady: boolean;
   isAuthenticated: boolean;
   userId: string | null;
   signOut: () => Promise<void>;
+  deleteAccount: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -56,6 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isAuthenticated: (localUsers?.length ?? 0) > 0,
     userId: localUsers?.[0]?.id ?? null,
     signOut: signOutSession,
+    deleteAccount: deleteAccountSession,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

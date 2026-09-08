@@ -71,6 +71,16 @@ export const visits = sqliteTable(
     status: text('status').notNull().default('in_progress'),
     latitude: real('latitude'),
     longitude: real('longitude'),
+    // 방문 생성 시점에 한 번 캡처하는 날씨 스냅샷 — 나중에 다시 조회하지 않고
+    // 그 순간의 관측값을 그대로 보존한다. 전부 nullable: GPS 거부/오프라인/
+    // 업체 응답 실패 시에도 방문 생성 자체는 막지 않는 best-effort 캡처.
+    weatherObservedAt: integer('weather_observed_at'),
+    temperatureC: real('temperature_c'),
+    humidityPercent: real('humidity_percent'),
+    precipitationMm: real('precipitation_mm'),
+    windSpeedMs: real('wind_speed_ms'),
+    weatherCode: text('weather_code'),
+    weatherSource: text('weather_source'),
     deletedAt: integer('deleted_at'),
     ...syncColumns(),
   },
@@ -177,6 +187,62 @@ export const recordFieldValues = sqliteTable(
       'record_field_values_sync_status_check',
       sql`${t.syncStatus} IN ('기기 내 저장','동기화 중','동기화 완료','동기화 실패')`,
     ),
+  ],
+);
+
+// 1:1 with a voice_ai record. audioLocalUri is nullable because it's a
+// local-only device file path, never mirrored to Supabase (see toXRemotePayload
+// in src/sync/tables.ts).
+export const recordTranscripts = sqliteTable(
+  'record_transcripts',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    recordId: text('record_id')
+      .notNull()
+      .references(() => records.id),
+    audioLocalUri: text('audio_local_uri'),
+    audioRemotePath: text('audio_remote_path'),
+    audioDurationSec: real('audio_duration_sec'),
+    rawTranscript: text('raw_transcript'),
+    structuringStatus: text('structuring_status').notNull().default('pending_transcription'),
+    aiConfidenceScore: real('ai_confidence_score'),
+    ...syncColumns(),
+  },
+  (t) => [
+    uniqueIndex('record_transcripts_record_unique').on(t.recordId),
+    check(
+      'record_transcripts_status_check',
+      sql`${t.structuringStatus} IN ('pending_transcription','transcribing','pending_structuring','structuring','structured','failed')`,
+    ),
+    check(
+      'record_transcripts_sync_status_check',
+      sql`${t.syncStatus} IN ('기기 내 저장','동기화 중','동기화 완료','동기화 실패')`,
+    ),
+  ],
+);
+
+// 1:N with a record. 사진 실제 데이터는 outbox/JSON upsert 경로로 동기화하지
+// 않는다 — Supabase Storage로 직접 업로드하는 별도 경로를 쓴다 (src/sync/photos.ts).
+// remotePath는 업로드가 끝나야 채워지고, 그때까지 syncStatus는 '기기 내 저장'에
+// 머무른다.
+export const photos = sqliteTable(
+  'photos',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    recordId: text('record_id')
+      .notNull()
+      .references(() => records.id),
+    localUri: text('local_uri').notNull(),
+    remotePath: text('remote_path'),
+    width: integer('width'),
+    height: integer('height'),
+    ...syncColumns(),
+  },
+  (t) => [
+    index('photos_record_idx').on(t.recordId),
+    check('photos_sync_status_check', sql`${t.syncStatus} IN ('기기 내 저장','동기화 중','동기화 완료','동기화 실패')`),
   ],
 );
 

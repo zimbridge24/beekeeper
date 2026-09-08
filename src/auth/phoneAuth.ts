@@ -8,6 +8,14 @@ export function toE164Korea(input: string): string {
   return `+82${withoutLeadingZero}`;
 }
 
+// Inverse of toE164Korea, for display purposes (e.g. settings/account.tsx):
+// "+821012345678" -> "010-1234-5678".
+export function fromE164Korea(e164: string): string {
+  const digits = e164.startsWith('+82') ? `0${e164.slice(3)}` : e164.replace(/\D/g, '');
+  if (digits.length !== 11) return digits;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
 export async function sendPhoneOtp(rawPhone: string): Promise<void> {
   const { error } = await supabase.auth.signInWithOtp({ phone: toE164Korea(rawPhone) });
   if (error) throw error;

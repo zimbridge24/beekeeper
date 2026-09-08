@@ -2,20 +2,20 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Text, View } from 'react-native';
 
-import { Button } from '../../../../components/Button';
-import { CheckIcon } from '../../../../components/icons';
-import { Screen } from '../../../../components/Screen';
-import { useColony } from '../../../../repositories/colonyRepository';
-import { endVisit } from '../../../../repositories/visitRepository';
-import { colors, fontFamilies, fontSizes, spacing } from '../../../../theme/tokens';
+import { Button } from '../../../components/Button';
+import { CheckIcon } from '../../../components/icons';
+import { Screen } from '../../../components/Screen';
+import { useColony } from '../../../repositories/colonyRepository';
+import { endVisit } from '../../../repositories/visitRepository';
+import { colors, fontFamilies, fontSizes, spacing } from '../../../theme/tokens';
 
 export default function RecordSavedScreen() {
   const { visitId, colonyId, recordTypeTitle } = useLocalSearchParams<{
     visitId: string;
-    colonyId: string;
+    colonyId?: string;
     recordTypeTitle?: string;
   }>();
-  const { data: colonyRows } = useColony(colonyId);
+  const { data: colonyRows } = useColony(colonyId || undefined);
   const colony = colonyRows?.[0];
   const [ending, setEnding] = useState(false);
 
@@ -44,7 +44,9 @@ export default function RecordSavedScreen() {
         >
           <CheckIcon />
         </View>
-        <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.display1, color: colors.textPrimary }}>
+        <Text
+          style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.display1, color: colors.textPrimary, textAlign: 'center' }}
+        >
           {colony?.alias ?? ''} {recordTypeTitle ?? ''} 기록 저장 완료
         </Text>
         <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary, textAlign: 'center' }}>
@@ -53,7 +55,15 @@ export default function RecordSavedScreen() {
       </View>
 
       <View style={{ gap: spacing.sm }}>
-        <Button label="다음 봉군 선택하기" onPress={() => router.replace({ pathname: '/visits/[visitId]/progress', params: { visitId } })} />
+        <Button
+          label="다음도 음성으로 기록하기"
+          onPress={() => router.replace({ pathname: '/visits/[visitId]/voice-record', params: { visitId } })}
+        />
+        <Button
+          label="목록에서 봉군 선택하기"
+          variant="surface"
+          onPress={() => router.replace({ pathname: '/visits/[visitId]/progress', params: { visitId } })}
+        />
         <Button label="방문 종료하기" variant="ghost" onPress={handleEndVisit} loading={ending} />
       </View>
     </Screen>

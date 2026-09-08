@@ -5,6 +5,7 @@ import { ScrollView, Text, View } from 'react-native';
 import { Button } from '../../../../components/Button';
 import { Card } from '../../../../components/Card';
 import { ForwardChevronIcon } from '../../../../components/icons';
+import { PhotoPicker, PickedPhoto } from '../../../../components/PhotoPicker';
 import { Screen } from '../../../../components/Screen';
 import { ScreenHeader } from '../../../../components/ScreenHeader';
 import { TextField } from '../../../../components/TextField';
@@ -22,6 +23,7 @@ export default function QuickCheckScreen() {
 
   const [values, setValues] = useState<Record<string, TriState>>({});
   const [notes, setNotes] = useState('');
+  const [photos, setPhotos] = useState<PickedPhoto[]>([]);
   const [saving, setSaving] = useState(false);
 
   const setField = (key: string, state: TriState) => setValues((prev) => ({ ...prev, [key]: state }));
@@ -36,9 +38,10 @@ export default function QuickCheckScreen() {
         fields: QUICK_CHECK_FIELDS,
         values: values as Record<string, FieldValueState>,
         notes: notes.trim() || null,
+        photos,
       });
       await upsertVisitColonyStatus(visitId, colonyId, 'done');
-      router.replace({ pathname: '/visits/[visitId]/[colonyId]/saved', params: { visitId, colonyId } });
+      router.replace({ pathname: '/visits/[visitId]/saved', params: { visitId, colonyId } });
     } finally {
       setSaving(false);
     }
@@ -59,6 +62,8 @@ export default function QuickCheckScreen() {
           ))}
 
           <TextField label="자유메모 (선택)" value={notes} onChangeText={setNotes} placeholder="추가로 남길 내용" multiline />
+
+          <PhotoPicker photos={photos} onChange={setPhotos} />
 
           <View>
             <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: colors.textPrimary }}>

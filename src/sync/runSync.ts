@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '../db/client';
 import { appMeta } from '../db/schema';
 import { pullAll } from './pull';
+import { pushPhotos } from './photos';
 import { pushOutbox } from './push';
 
 const LAST_SYNC_KEY = 'last_sync_completed_at';
@@ -33,6 +34,7 @@ export async function runSync(): Promise<void> {
   syncInFlight = (async () => {
     try {
       await pushOutbox();
+      await pushPhotos();
       await pullAll();
       await db
         .insert(appMeta)

@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Image, ScrollView, Text, View } from 'react-native';
 
 import { Card } from '../../../../components/Card';
 import { Chip } from '../../../../components/Chip';
@@ -14,16 +14,20 @@ import {
   VALUE_STATE_LABELS,
 } from '../../../../features/records/recordTypesConfig';
 import { useColony } from '../../../../repositories/colonyRepository';
+import { usePhotosForRecord } from '../../../../repositories/photoRepository';
 import { useRecordFieldValues, useRecordsForColony } from '../../../../repositories/recordRepository';
-import { colors, fontFamilies, fontSizes, spacing } from '../../../../theme/tokens';
+import { useVisit } from '../../../../repositories/visitRepository';
+import { colors, fontFamilies, fontSizes, radius, spacing, statusColors } from '../../../../theme/tokens';
+import { weatherCodeLabel } from '../../../../weather/weatherCodeLabel';
 
-const FILTER_OPTIONS: Array<{ key: 'all' | RecordType; label: string }> = [
+const FILTER_OPTIONS: { key: 'all' | RecordType; label: string }[] = [
   { key: 'all', label: '전체' },
   ...(Object.entries(RECORD_TYPE_LABELS) as [RecordType, string][]).map(([key, label]) => ({ key, label })),
 ];
 
 function TimelineEntry({ record }: { record: typeof records.$inferSelect }) {
   const { data: fieldValues } = useRecordFieldValues(record.id);
+  const { data: photos } = usePhotosForRecord(record.id);
   // record_field_values has no sequence column — sort by the config's field
   // order (queen_status, colony_strength, ...) rather than SQLite's
   // arbitrary row order, so the display order is stable and matches the
@@ -33,16 +37,41 @@ function TimelineEntry({ record }: { record: typeof records.$inferSelect }) {
     ? [...fieldValues].sort((a, b) => fieldOrder.indexOf(a.fieldKey) - fieldOrder.indexOf(b.fieldKey))
     : undefined;
 
+  // 날씨는 방문 단위 스냅샷이라 record.visitId로 조회한다 — 없으면(방문이
+  // 날씨 기능 이전에 만들어졌거나 캡처 실패) 뱃지를 그냥 숨긴다.
+  const { data: visitRows } = useVisit(record.visitId);
+  const visit = visitRows?.[0];
+  const weatherLabel = weatherCodeLabel(visit?.weatherCode);
+  const weatherBadgeText = [weatherLabel, visit?.temperatureC != null ? `${Math.round(visit.temperatureC)}°C` : null]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
     <Card size="large">
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+      <View style={{ gap: 6 }}>
         <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.sm, color: colors.textMuted }}>
           {new Date(record.occurredAt).toLocaleString('ko-KR')}
         </Text>
-        <View style={{ paddingVertical: 3, paddingHorizontal: 9, borderRadius: 999, backgroundColor: colors.surfaceTint }}>
-          <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.xs, color: colors.primary }}>
-            {RECORD_TYPE_LABELS[record.recordType as keyof typeof RECORD_TYPE_LABELS] ?? record.recordType}
-          </Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+          {weatherBadgeText.length > 0 && (
+            <View
+              style={{
+                paddingVertical: 3,
+                paddingHorizontal: 9,
+                borderRadius: 999,
+                backgroundColor: statusColors.observe.bg,
+              }}
+            >
+              <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.xs, color: statusColors.observe.text }}>
+                {weatherBadgeText}
+              </Text>
+            </View>
+          )}
+          <View style={{ paddingVertical: 3, paddingHorizontal: 9, borderRadius: 999, backgroundColor: colors.surfaceTint }}>
+            <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.xs, color: colors.primary }}>
+              {RECORD_TYPE_LABELS[record.recordType as keyof typeof RECORD_TYPE_LABELS] ?? record.recordType}
+            </Text>
+          </View>
         </View>
       </View>
 
@@ -64,6 +93,18 @@ function TimelineEntry({ record }: { record: typeof records.$inferSelect }) {
         <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary, marginTop: spacing.sm }}>
           메모: {record.notes}
         </Text>
+      )}
+
+      {photos && photos.length > 0 && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm }}>
+          {photos.map((photo) => (
+            <Image
+              key={photo.id}
+              source={{ uri: photo.localUri }}
+              style={{ width: 64, height: 64, borderRadius: radius.cardSmall }}
+            />
+          ))}
+        </View>
       )}
     </Card>
   );

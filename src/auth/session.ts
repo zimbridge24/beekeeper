@@ -3,6 +3,7 @@ import type { User } from '@supabase/supabase-js';
 import { db, resetLocalDatabase } from '../db/client';
 import { users } from '../db/schema';
 import { supabase } from '../supabase/client';
+import { invokeEdgeFunction } from '../supabase/edgeFunctionClient';
 
 export async function upsertLocalUser(user: User) {
   const now = Date.now();
@@ -27,6 +28,18 @@ export async function getLocalUser() {
 // user_id, so a second person signing into the same device never sees a
 // previous user's offline data.
 export async function signOut() {
+  await supabase.auth.signOut();
+  await resetLocalDatabase();
+}
+
+// Permanently deletes the account server-side (see
+// supabase/functions/delete-account) — the client SDK has no self-delete
+// call, so this goes through an Edge Function that verifies the caller's own
+// JWT and uses the service role key to delete just that user. Irreversible.
+export async function deleteAccount(): Promise<void> {
+  await invokeEdgeFunction('delete-account', {});
+  // The account is already gone server-side at this point; signOut() here
+  // just clears the now-stale local session token cache.
   await supabase.auth.signOut();
   await resetLocalDatabase();
 }
