@@ -34,6 +34,15 @@ export const apiaries = sqliteTable(
   ],
 );
 
+// colonies.apiaryId/internalCode stay as a denormalized "current location"
+// cache for the many screens/queries that just want "which apiary is this
+// colony in right now" without a join — kept in sync whenever the colony's
+// active hive assignment changes (see reassignColonyToHive in
+// colonyRepository.ts). The authoritative, historical record of where a
+// colony has physically lived is `hives` + `colonyHiveAssignments` below —
+// Colony (생물학적 봉군) and Hive (물리적 벌통) are separate entities on
+// purpose, so a colony's full record survives it moving boxes, and a hive
+// keeps its own history as colonies come and go.
 export const colonies = sqliteTable(
   'colonies',
   {
@@ -55,6 +64,60 @@ export const colonies = sqliteTable(
     uniqueIndex('colonies_apiary_code_unique').on(t.apiaryId, t.internalCode),
     check('colonies_sync_status_check', sql`${t.syncStatus} IN ('기기 내 저장','동기화 중','동기화 완료','동기화 실패')`),
     check('colonies_species_check', sql`${t.species} IN ('western','native')`),
+  ],
+);
+
+// The physical box. Independent identity from `colonies` — a hive can sit
+// empty, get a fresh colony after the old one dies out, or a colony can be
+// moved to a different hive, all without losing either side's history.
+export const hives = sqliteTable(
+  'hives',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    apiaryId: text('apiary_id')
+      .notNull()
+      .references(() => apiaries.id),
+    code: text('code').notNull(),
+    isArchived: integer('is_archived', { mode: 'boolean' }).notNull().default(false),
+    archivedAt: integer('archived_at'),
+    deletedAt: integer('deleted_at'),
+    ...syncColumns(),
+  },
+  (t) => [
+    index('hives_apiary_idx').on(t.apiaryId, t.isArchived),
+    uniqueIndex('hives_apiary_code_unique').on(t.apiaryId, t.code),
+    check('hives_sync_status_check', sql`${t.syncStatus} IN ('기기 내 저장','동기화 중','동기화 완료','동기화 실패')`),
+  ],
+);
+
+// One open (endedAt IS NULL) row per colony and per hive at a time — the
+// history of which colony has lived in which hive, and when. MVP screens
+// don't expose hive management yet; today every colony gets exactly one
+// hive auto-created alongside it (see createColony), but the structure
+// already supports a colony moving hives or a hive getting a new colony
+// later without a schema change.
+export const colonyHiveAssignments = sqliteTable(
+  'colony_hive_assignments',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    colonyId: text('colony_id')
+      .notNull()
+      .references(() => colonies.id),
+    hiveId: text('hive_id')
+      .notNull()
+      .references(() => hives.id),
+    startedAt: integer('started_at').notNull(),
+    endedAt: integer('ended_at'),
+    ...syncColumns(),
+  },
+  (t) => [
+    index('cha_colony_idx').on(t.colonyId, t.startedAt),
+    index('cha_hive_idx').on(t.hiveId, t.startedAt),
+    uniqueIndex('cha_colony_open_unique').on(t.colonyId).where(sql`${t.endedAt} IS NULL`),
+    uniqueIndex('cha_hive_open_unique').on(t.hiveId).where(sql`${t.endedAt} IS NULL`),
+    check('cha_sync_status_check', sql`${t.syncStatus} IN ('기기 내 저장','동기화 중','동기화 완료','동기화 실패')`),
   ],
 );
 
@@ -160,10 +223,26 @@ export const records = sqliteTable(
 );
 
 // One row per config-defined field per record — lets field sets differ per
-// record_type without schema changes, and makes the tri-state distinction
-// (있음/없음/확인하지 않음 vs 미입력) explicit: every field for a record_type
-// is inserted as 'unset' at creation time, so a missing row is never
-// possible and can't be confused with an explicit "확인하지 않음" answer.
+// record_type without schema changes. Every field for a record_type is
+// inserted as 'unset' at creation time, so a missing row is never possible.
+//
+// value_state's valid tokens depend on the field's *kind* (see FieldKind /
+// FIELD_KIND_OPTIONS in src/features/records/recordTypesConfig.ts) — a
+// 검사형 field like 응애 감염 uses not_tested/tested_negative/
+// tested_positive/indeterminate, while a 관찰형 field like 여왕벌 상태 uses
+// present/absent/unknown. The CHECK below only guards against garbage
+// values (the union of every kind's tokens) — which subset applies to a
+// given field_key is an application-layer concern, since SQLite has no
+// clean way to make a CHECK conditional on another column's value. The one
+// invariant every kind shares is 'unset' (미입력, never touched) — it must
+// never be confused with a kind's own "checked, nothing found" token (e.g.
+// absent, tested_negative), which is the whole point of splitting kinds out.
+//
+// aiDraftValueState holds the AI's original (pre-edit) guess for voice_ai
+// records — set once at insert time and never overwritten by later edits to
+// valueState, so "what did the AI say vs what did the user correct it to"
+// stays answerable for accuracy/edit-rate analysis later. Always null for
+// quick_select records (no AI involved).
 export const recordFieldValues = sqliteTable(
   'record_field_values',
   {
@@ -175,6 +254,7 @@ export const recordFieldValues = sqliteTable(
     category: text('category').notNull(),
     fieldKey: text('field_key').notNull(),
     valueState: text('value_state').notNull().default('unset'),
+    aiDraftValueState: text('ai_draft_value_state'),
     valueText: text('value_text'),
     valueNumber: real('value_number'),
     ...syncColumns(),
@@ -182,7 +262,14 @@ export const recordFieldValues = sqliteTable(
   (t) => [
     uniqueIndex('record_field_values_unique').on(t.recordId, t.fieldKey),
     check('record_field_values_category_check', sql`${t.category} IN ('observation','problem','action','result')`),
-    check('record_field_values_state_check', sql`${t.valueState} IN ('present','absent','unknown','unset')`),
+    check(
+      'record_field_values_state_check',
+      sql`${t.valueState} IN ('present','absent','unknown','not_tested','tested_negative','tested_positive','indeterminate','done','not_done','asian_hornet','giant_hornet','other','unknown_species','none','few_1_5','several_6_20','many_20_plus','unset')`,
+    ),
+    check(
+      'record_field_values_ai_draft_state_check',
+      sql`${t.aiDraftValueState} IS NULL OR ${t.aiDraftValueState} IN ('present','absent','unknown','not_tested','tested_negative','tested_positive','indeterminate','done','not_done','asian_hornet','giant_hornet','other','unknown_species','none','few_1_5','several_6_20','many_20_plus','unset')`,
+    ),
     check(
       'record_field_values_sync_status_check',
       sql`${t.syncStatus} IN ('기기 내 저장','동기화 중','동기화 완료','동기화 실패')`,
@@ -193,6 +280,14 @@ export const recordFieldValues = sqliteTable(
 // 1:1 with a voice_ai record. audioLocalUri is nullable because it's a
 // local-only device file path, never mirrored to Supabase (see toXRemotePayload
 // in src/sync/tables.ts).
+//
+// aiDraftRecordType/aiDraftColonyId/aiDraftNotes preserve exactly what the
+// AI originally proposed (recordType never changes after that in the review
+// screen, so it's captured here rather than duplicated per-field; colonyId
+// and notes can be edited by the user before saving, so the AI's original
+// guess would otherwise be lost). Together with record_field_values.
+// aiDraftValueState, this keeps 원본 음성 → STT → AI 초안 → 사용자 확정값 as
+// four genuinely separate, permanently-retained pieces of data.
 export const recordTranscripts = sqliteTable(
   'record_transcripts',
   {
@@ -207,6 +302,9 @@ export const recordTranscripts = sqliteTable(
     rawTranscript: text('raw_transcript'),
     structuringStatus: text('structuring_status').notNull().default('pending_transcription'),
     aiConfidenceScore: real('ai_confidence_score'),
+    aiDraftRecordType: text('ai_draft_record_type'),
+    aiDraftColonyId: text('ai_draft_colony_id'),
+    aiDraftNotes: text('ai_draft_notes'),
     ...syncColumns(),
   },
   (t) => [

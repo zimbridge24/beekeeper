@@ -5,7 +5,7 @@ import { Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { AuthProvider } from '../auth/AuthProvider';
+import { AuthProvider, useAuth } from '../auth/AuthProvider';
 import { useDatabaseMigrations } from '../db/migrate';
 import { useSyncTriggers } from '../sync/triggers';
 import { usePretendardFonts } from '../theme/fonts';
@@ -14,13 +14,27 @@ SplashScreen.preventAutoHideAsync();
 
 function AppShell() {
   useSyncTriggers();
+  const { isAuthenticated } = useAuth();
+
+  // app/index.tsx's <Redirect> only fires once, right after cold start —
+  // it doesn't re-run once the user has navigated away from "/". Without
+  // these guards, a login/logout that happens later (e.g. from deep inside
+  // (tabs)/settings) updates isAuthenticated but never moves the user to
+  // the right screen; they'd see no change until they force-quit and
+  // reopen the app. Stack.Protected re-evaluates its guard on every
+  // render, so it force-navigates immediately when auth state flips,
+  // regardless of where the user currently is.
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
-      <Stack.Screen name="(auth)" />
-      <Stack.Screen name="(setup)" />
-      <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="sync" />
+      <Stack.Protected guard={!isAuthenticated}>
+        <Stack.Screen name="(auth)" />
+      </Stack.Protected>
+      <Stack.Protected guard={isAuthenticated}>
+        <Stack.Screen name="(setup)" />
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="sync" />
+      </Stack.Protected>
     </Stack>
   );
 }

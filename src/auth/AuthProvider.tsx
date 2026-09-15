@@ -1,9 +1,10 @@
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
-import { createContext, ReactNode, useContext, useEffect } from 'react';
+import { createContext, ReactNode, useContext, useEffect, useSyncExternalStore } from 'react';
 
 import { db, resetLocalDatabase } from '../db/client';
 import { users } from '../db/schema';
 import { supabase } from '../supabase/client';
+import { getAuthenticatedSignal, setAuthenticatedSignal, subscribeAuthenticatedSignal } from './authSignal';
 import { setCurrentUserId } from './currentUser';
 import { deleteAccount as deleteAccountSession, signOut as signOutSession, upsertLocalUser } from './session';
 
@@ -23,10 +24,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // network dependency. supabase.auth below only confirms/refreshes this in
   // the background — a network failure here must never force a sign-out.
   const { data: localUsers } = useLiveQuery(db.select().from(users).limit(1));
-  const localReady = localUsers !== undefined;
+
+  // isAuthenticated is read from authSignal (via useSyncExternalStore), not
+  // directly from localUsers — session.ts's signOut/deleteAccount/
+  // upsertLocalUser set that signal synchronously the instant they know the
+  // outcome, so code that awaits one of those calls and immediately
+  // navigates sees the correct value right away. useLiveQuery's own update
+  // only lands once expo-sqlite's native change-listener callback fires and
+  // re-runs the query, which is not synchronous with the write that caused
+  // it — relying on it alone caused post-logout navigation to briefly read
+  // stale (still-authenticated) state and land on the wrong screen.
+  const authSignal = useSyncExternalStore(subscribeAuthenticatedSignal, getAuthenticatedSignal);
 
   useEffect(() => {
-    setCurrentUserId(localUsers?.[0]?.id ?? null);
+    if (localUsers === undefined) return;
+    const id = localUsers[0]?.id ?? null;
+    setCurrentUserId(id);
+    // Only backfills the signal on cold start / background DB changes that
+    // didn't go through an explicit auth action (those already set it
+    // synchronously above). Safe to call redundantly either way.
+    setAuthenticatedSignal(localUsers.length > 0);
   }, [localUsers]);
 
   useEffect(() => {
@@ -41,7 +58,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data: subscription } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
-        resetLocalDatabase().catch((err) => console.warn('[auth] resetLocalDatabase failed', err));
+        resetLocalDatabase()
+          .then(() => {
+            setCurrentUserId(null);
+            setAuthenticatedSignal(false);
+          })
+          .catch((err) => console.warn('[auth] resetLocalDatabase failed', err));
         return;
       }
       if (session?.user) {
@@ -53,8 +75,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value: AuthContextValue = {
-    isReady: localReady,
-    isAuthenticated: (localUsers?.length ?? 0) > 0,
+    isReady: authSignal !== null,
+    isAuthenticated: authSignal === true,
     userId: localUsers?.[0]?.id ?? null,
     signOut: signOutSession,
     deleteAccount: deleteAccountSession,

@@ -4,6 +4,7 @@ import { ScrollView, Text, View } from 'react-native';
 import { Card } from '../../../../components/Card';
 import { Screen } from '../../../../components/Screen';
 import { ScreenHeader } from '../../../../components/ScreenHeader';
+import { getFieldKindByKey, isProblemValueState } from '../../../../features/records/recordTypesConfig';
 import { useColony } from '../../../../repositories/colonyRepository';
 import { useFieldValuesForRecordIds, useRecordsForColony } from '../../../../repositories/recordRepository';
 import { colors, fontFamilies, fontSizes, spacing } from '../../../../theme/tokens';
@@ -23,8 +24,11 @@ export default function ColonyHealthScreen() {
 
   const bars = recentRecords.map((record) => {
     const problemCount =
-      fieldValues?.filter((fv) => fv.recordId === record.id && fv.category === 'problem' && fv.valueState === 'present')
-        .length ?? 0;
+      fieldValues?.filter((fv) => {
+        if (fv.recordId !== record.id || fv.category !== 'problem') return false;
+        const kind = getFieldKindByKey(fv.fieldKey);
+        return kind ? isProblemValueState(kind, fv.valueState) : false;
+      }).length ?? 0;
     return {
       date: new Date(record.occurredAt).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' }),
       count: problemCount,

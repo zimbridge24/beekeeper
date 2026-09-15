@@ -8,10 +8,11 @@ import { Screen } from '../../../../components/Screen';
 import { ScreenHeader } from '../../../../components/ScreenHeader';
 import { records, RecordType } from '../../../../db/schema';
 import {
+  getFieldKindByKey,
   getFieldLabel,
   getFieldsForRecordType,
+  getValueStateLabel,
   RECORD_TYPE_LABELS,
-  VALUE_STATE_LABELS,
 } from '../../../../features/records/recordTypesConfig';
 import { useColony } from '../../../../repositories/colonyRepository';
 import { usePhotosForRecord } from '../../../../repositories/photoRepository';
@@ -79,14 +80,15 @@ function TimelineEntry({ record }: { record: typeof records.$inferSelect }) {
         {fieldValues === undefined && (
           <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textMuted }}>불러오는 중...</Text>
         )}
-        {orderedFieldValues?.map((fv) => (
-          <Text key={fv.id} style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textPrimary }}>
-            {getFieldLabel(record.recordType as RecordType, fv.fieldKey)}:{' '}
-            <Text style={{ color: colors.textSecondary }}>
-              {VALUE_STATE_LABELS[fv.valueState as keyof typeof VALUE_STATE_LABELS] ?? fv.valueState}
+        {orderedFieldValues?.map((fv) => {
+          const kind = getFieldKindByKey(fv.fieldKey);
+          return (
+            <Text key={fv.id} style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textPrimary }}>
+              {getFieldLabel(record.recordType as RecordType, fv.fieldKey)}:{' '}
+              <Text style={{ color: colors.textSecondary }}>{kind ? getValueStateLabel(kind, fv.valueState) : fv.valueState}</Text>
             </Text>
-          </Text>
-        ))}
+          );
+        })}
       </View>
 
       {record.notes && (

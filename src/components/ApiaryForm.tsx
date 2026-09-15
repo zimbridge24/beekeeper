@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { useCurrentLocation } from '../location/useCurrentLocation';
@@ -27,6 +27,18 @@ export function ApiaryForm({ initial, submitLabel, onSubmit, saving }: Props) {
   const handleDetect = async () => {
     await detect();
   };
+
+  // Auto-detect on mount for a brand-new apiary (no saved location yet) so
+  // the user doesn't have to tap first. Never auto-run when editing an
+  // existing apiary (`initial` has coordinates) — that would silently
+  // overwrite its saved location with wherever the device happens to be
+  // the moment the edit screen opens.
+  useEffect(() => {
+    if (initial?.latitude == null || initial?.longitude == null) {
+      void detect();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Derived, not synced via effect: once a detection succeeds, its result
   // *is* the location for every subsequent render — no need to copy it into

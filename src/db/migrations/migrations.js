@@ -6,6 +6,7 @@ import m0001 from './0001_hesitant_natasha_romanoff.sql';
 import m0002 from './0002_mushy_plazm.sql';
 import m0003 from './0003_milky_absorbing_man.sql';
 import m0004 from './0004_concerned_daredevil.sql';
+import m0005 from './0005_nervous_vanisher.sql';
 
   export default {
     journal,
@@ -14,7 +15,8 @@ import m0004 from './0004_concerned_daredevil.sql';
 m0001,
 m0002,
 m0003,
-m0004
+m0004,
+m0005
     }
   }
   

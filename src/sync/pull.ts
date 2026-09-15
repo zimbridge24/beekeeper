@@ -11,9 +11,37 @@ import { SyncableTableName, SYNCABLE_TABLE_NAMES, upsertLocalRow } from './table
 
 const PAGE_SIZE = 200;
 
+// Lets the UI know the *apiaries* pull specifically has been attempted —
+// index.tsx waits on this (not the full runSync completion in
+// useHasAttemptedSync) before deciding "this account has no apiaries, send
+// them to setup". Waiting on the whole sync cycle meant that on an account
+// with a lot of accumulated data, the colonies/records/photos pulls after
+// apiaries could easily push past the setup-redirect timeout, so a
+// returning user with real apiaries would flash through to "register your
+// first apiary" before their existing one had a chance to land. Apiaries is
+// pulled first (see SYNCABLE_TABLE_NAMES), so this fires much sooner.
+let hasAttemptedApiariesPull = false;
+const apiariesPullListeners = new Set<() => void>();
+
+export function getHasAttemptedApiariesPull() {
+  return hasAttemptedApiariesPull;
+}
+
+export function subscribeApiariesPullAttempt(listener: () => void): () => void {
+  apiariesPullListeners.add(listener);
+  return () => apiariesPullListeners.delete(listener);
+}
+
 export async function pullAll(): Promise<void> {
   for (const tableName of SYNCABLE_TABLE_NAMES) {
-    await pullTable(tableName);
+    try {
+      await pullTable(tableName);
+    } finally {
+      if (tableName === 'apiaries' && !hasAttemptedApiariesPull) {
+        hasAttemptedApiariesPull = true;
+        apiariesPullListeners.forEach((listener) => listener());
+      }
+    }
   }
 }
 

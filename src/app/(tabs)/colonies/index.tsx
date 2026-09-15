@@ -1,17 +1,24 @@
 import { router } from 'expo-router';
-import { Pressable, Text, View } from 'react-native';
+import { Alert, Pressable, Text, View } from 'react-native';
 
 import { Card } from '../../../components/Card';
 import { ForwardChevronIcon } from '../../../components/icons';
 import { Screen } from '../../../components/Screen';
 import { ScreenHeader } from '../../../components/ScreenHeader';
 import { useApiaries } from '../../../repositories/apiaryRepository';
-import { useRecentColoniesWithApiary } from '../../../repositories/colonyRepository';
+import { deleteColony, useRecentColoniesWithApiary } from '../../../repositories/colonyRepository';
 import { colors, fontFamilies, fontSizes, radius, spacing } from '../../../theme/tokens';
 
 export default function ColoniesListScreen() {
   const { data: colonies } = useRecentColoniesWithApiary(500);
   const { data: apiaries } = useApiaries();
+
+  const handleDelete = (colonyId: string, alias: string) => {
+    Alert.alert('봉군 삭제', `"${alias}"을(를) 삭제할까요? 되돌릴 수 없습니다.`, [
+      { text: '취소', style: 'cancel' },
+      { text: '삭제', style: 'destructive', onPress: () => deleteColony(colonyId) },
+    ]);
+  };
 
   const handleAddColony = () => {
     if (apiaries?.length === 1) {
@@ -52,7 +59,12 @@ export default function ColoniesListScreen() {
                   {apiaryName ?? '소속 양봉장 없음'}
                 </Text>
               </View>
-              <ForwardChevronIcon />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+                <Pressable onPress={() => handleDelete(colony.id, colony.alias)} hitSlop={12}>
+                  <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: '#C1443A' }}>삭제</Text>
+                </Pressable>
+                <ForwardChevronIcon />
+              </View>
             </View>
           </Card>
         ))}

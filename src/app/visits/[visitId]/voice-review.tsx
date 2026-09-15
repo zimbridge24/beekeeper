@@ -1,19 +1,19 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 
 import { Button } from '../../../components/Button';
 import { Card } from '../../../components/Card';
 import { Chip } from '../../../components/Chip';
+import { FieldStateSelector } from '../../../components/FieldStateSelector';
 import { PhotoPicker, PickedPhoto } from '../../../components/PhotoPicker';
 import { Screen } from '../../../components/Screen';
 import { ScreenHeader } from '../../../components/ScreenHeader';
 import { TextField } from '../../../components/TextField';
-import { TriState, TriStateField } from '../../../components/TriStateField';
 import { RecordType } from '../../../db/schema';
 import { getFieldsForRecordType, RECORD_TYPE_LABELS } from '../../../features/records/recordTypesConfig';
 import { useColonies } from '../../../repositories/colonyRepository';
-import { createVoiceRecord, FieldValueState } from '../../../repositories/recordRepository';
+import { createVoiceRecord } from '../../../repositories/recordRepository';
 import { upsertVisitColonyStatus, useVisit } from '../../../repositories/visitRepository';
 import { colors, fontFamilies, fontSizes, radius, spacing } from '../../../theme/tokens';
 
@@ -24,6 +24,7 @@ export default function VoiceReviewScreen() {
   const params = useLocalSearchParams<{
     visitId: string;
     colonyId: string;
+    aiDraftColonyId?: string;
     colonyLocked: string;
     recordType: RecordType;
     values: string;
@@ -47,18 +48,25 @@ export default function VoiceReviewScreen() {
   const confidenceScore = Number(params.confidenceScore) || 0;
   const needsReview = confidenceScore < CONFIDENCE_REVIEW_THRESHOLD;
 
-  const [values, setValues] = useState<Record<string, TriState>>(() => {
+  // AI의 원본 제안 — 사용자가 아래에서 수정해도 이 값들은 절대 바뀌지 않는다.
+  // 최종 저장 시 record_field_values.aiDraftValueState /
+  // record_transcripts.aiDraft* 로 값들과 별도로 영구 보존된다.
+  const aiDraftValues = useMemo(() => {
     try {
-      return JSON.parse(params.values) as Record<string, TriState>;
+      return JSON.parse(params.values) as Record<string, string>;
     } catch {
       return {};
     }
-  });
-  const [notes, setNotes] = useState(params.notes ?? '');
+  }, [params.values]);
+  const aiDraftNotes = params.notes ?? '';
+  const aiDraftColonyId = params.aiDraftColonyId || null;
+
+  const [values, setValues] = useState<Record<string, string>>(aiDraftValues);
+  const [notes, setNotes] = useState(aiDraftNotes);
   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
   const [saving, setSaving] = useState(false);
 
-  const setField = (key: string, state: TriState) => setValues((prev) => ({ ...prev, [key]: state }));
+  const setField = (key: string, state: string) => setValues((prev) => ({ ...prev, [key]: state }));
 
   const handleSave = async () => {
     if (!selectedColonyId) return;
@@ -69,13 +77,16 @@ export default function VoiceReviewScreen() {
         colonyId: selectedColonyId,
         recordType,
         fields,
-        values: values as Record<string, FieldValueState>,
+        values,
         notes: notes.trim() || null,
         rawTranscript: transcript,
         aiConfidenceScore: confidenceScore,
         audioLocalUri: params.audioLocalUri ?? null,
         audioDurationSec: params.audioDurationSec ? Number(params.audioDurationSec) : null,
         photos,
+        aiDraftValues,
+        aiDraftColonyId,
+        aiDraftNotes,
       });
       await upsertVisitColonyStatus(visitId, selectedColonyId, 'done');
       router.replace({
@@ -160,7 +171,13 @@ export default function VoiceReviewScreen() {
               AI가 구조화한 내용 (확인 후 수정 가능)
             </Text>
             {fields.map((field) => (
-              <TriStateField key={field.key} label={field.label} value={values[field.key]} onChange={(v) => setField(field.key, v)} />
+              <FieldStateSelector
+                key={field.key}
+                label={field.label}
+                kind={field.kind}
+                value={values[field.key]}
+                onChange={(v) => setField(field.key, v)}
+              />
             ))}
           </View>
 

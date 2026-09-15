@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Image, Pressable, Text, View } from 'react-native';
 
 import { useAuth } from '../../auth/AuthProvider';
 import { getLocalUser } from '../../auth/session';
@@ -32,9 +32,14 @@ export default function HomeScreen() {
   const totalColonies = colonyCountRows?.[0]?.value;
 
   const handleStartVisit = async () => {
-    if (!apiaries || apiaries.length === 0) return;
-    if (apiaries.length > 1) {
-      router.push('/apiaries');
+    if (!apiaries) return;
+    // No apiary yet, or more than one to choose from — either way, send
+    // the user to pick/create one instead of silently doing nothing.
+    // intent=voice-check tells the apiary/colony picker to jump straight
+    // into voice recording for whichever colony gets tapped, instead of its
+    // normal behavior of opening that colony's detail screen.
+    if (apiaries.length !== 1) {
+      router.push({ pathname: '/apiaries', params: { intent: 'voice-check' } });
       return;
     }
     setStartingVisit(true);
@@ -72,10 +77,12 @@ export default function HomeScreen() {
             <HamburgerIcon />
           </Pressable>
           <Pressable onPress={() => router.push('/(tabs)/settings')}>
-            <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surfaceTint }} />
+            <Image source={require('../../../assets/beehero-face.png')} style={{ width: 40, height: 40 }} resizeMode="contain" />
           </Pressable>
         </View>
       </View>
+
+      <Button label="AI 음성으로 내검하기" onPress={handleStartVisit} loading={startingVisit} />
 
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
         <Card size="large" style={{ flex: 1 }}>
@@ -125,9 +132,6 @@ export default function HomeScreen() {
         ))}
       </View>
 
-      {totalColonies !== undefined && totalColonies > 0 && (
-        <Button label="오늘 내검 시작하기" onPress={handleStartVisit} loading={startingVisit} />
-      )}
       <Button label="양봉장·봉군 관리" variant="surface" onPress={() => router.push('/apiaries')} />
     </Screen>
   );

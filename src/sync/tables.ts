@@ -1,7 +1,18 @@
 import { eq } from 'drizzle-orm';
 
 import { db } from '../db/client';
-import { apiaries, colonies, records, recordFieldValues, recordTranscripts, SyncStatus, visitColonies, visits } from '../db/schema';
+import {
+  apiaries,
+  colonies,
+  colonyHiveAssignments,
+  hives,
+  records,
+  recordFieldValues,
+  recordTranscripts,
+  SyncStatus,
+  visitColonies,
+  visits,
+} from '../db/schema';
 import { DbOrTx } from './outbox';
 import { toIso } from './timestamps';
 
@@ -11,6 +22,8 @@ type RemoteRow = Record<string, unknown>;
 export const SYNCABLE_TABLE_NAMES = [
   'apiaries',
   'colonies',
+  'hives',
+  'colony_hive_assignments',
   'visits',
   'visit_colonies',
   'records',
@@ -151,6 +164,64 @@ export function toColonyRemotePayload(row: typeof colonies.$inferSelect) {
   };
 }
 
+function fromHiveRemoteRow(row: RemoteRow) {
+  return {
+    id: row.id as string,
+    userId: row.user_id as string,
+    apiaryId: row.apiary_id as string,
+    code: row.code as string,
+    isArchived: Boolean(row.is_archived),
+    archivedAt: toEpochMs(row.archived_at),
+    deletedAt: toEpochMs(row.deleted_at),
+    createdAt: toEpochMs(row.created_at) ?? Date.now(),
+    updatedAt: toEpochMs(row.updated_at) ?? Date.now(),
+    syncStatus: '동기화 완료' as SyncStatus,
+    lastSyncedAt: Date.now() as number | null,
+  };
+}
+
+export function toHiveRemotePayload(row: typeof hives.$inferSelect) {
+  return {
+    id: row.id,
+    user_id: row.userId,
+    apiary_id: row.apiaryId,
+    code: row.code,
+    is_archived: row.isArchived,
+    archived_at: toIso(row.archivedAt),
+    deleted_at: toIso(row.deletedAt),
+    created_at: toIso(row.createdAt),
+    updated_at: toIso(row.updatedAt),
+  };
+}
+
+function fromColonyHiveAssignmentRemoteRow(row: RemoteRow) {
+  return {
+    id: row.id as string,
+    userId: row.user_id as string,
+    colonyId: row.colony_id as string,
+    hiveId: row.hive_id as string,
+    startedAt: toEpochMs(row.started_at) ?? Date.now(),
+    endedAt: toEpochMs(row.ended_at),
+    createdAt: toEpochMs(row.created_at) ?? Date.now(),
+    updatedAt: toEpochMs(row.updated_at) ?? Date.now(),
+    syncStatus: '동기화 완료' as SyncStatus,
+    lastSyncedAt: Date.now() as number | null,
+  };
+}
+
+export function toColonyHiveAssignmentRemotePayload(row: typeof colonyHiveAssignments.$inferSelect) {
+  return {
+    id: row.id,
+    user_id: row.userId,
+    colony_id: row.colonyId,
+    hive_id: row.hiveId,
+    started_at: toIso(row.startedAt),
+    ended_at: toIso(row.endedAt),
+    created_at: toIso(row.createdAt),
+    updated_at: toIso(row.updatedAt),
+  };
+}
+
 function fromVisitRemoteRow(row: RemoteRow) {
   return {
     id: row.id as string,
@@ -271,6 +342,7 @@ function fromRecordFieldValueRemoteRow(row: RemoteRow) {
     category: row.category as string,
     fieldKey: row.field_key as string,
     valueState: row.value_state as string,
+    aiDraftValueState: (row.ai_draft_value_state as string) ?? null,
     valueText: (row.value_text as string) ?? null,
     valueNumber: (row.value_number as number) ?? null,
     createdAt: toEpochMs(row.created_at) ?? Date.now(),
@@ -288,6 +360,7 @@ export function toRecordFieldValueRemotePayload(row: typeof recordFieldValues.$i
     category: row.category,
     field_key: row.fieldKey,
     value_state: row.valueState,
+    ai_draft_value_state: row.aiDraftValueState,
     value_text: row.valueText,
     value_number: row.valueNumber,
     created_at: toIso(row.createdAt),
@@ -308,6 +381,9 @@ function fromRecordTranscriptRemoteRow(row: RemoteRow) {
     rawTranscript: (row.raw_transcript as string) ?? null,
     structuringStatus: row.structuring_status as string,
     aiConfidenceScore: (row.ai_confidence_score as number) ?? null,
+    aiDraftRecordType: (row.ai_draft_record_type as string) ?? null,
+    aiDraftColonyId: (row.ai_draft_colony_id as string) ?? null,
+    aiDraftNotes: (row.ai_draft_notes as string) ?? null,
     createdAt: toEpochMs(row.created_at) ?? Date.now(),
     updatedAt: toEpochMs(row.updated_at) ?? Date.now(),
     syncStatus: '동기화 완료' as SyncStatus,
@@ -325,6 +401,9 @@ export function toRecordTranscriptRemotePayload(row: typeof recordTranscripts.$i
     raw_transcript: row.rawTranscript,
     structuring_status: row.structuringStatus,
     ai_confidence_score: row.aiConfidenceScore,
+    ai_draft_record_type: row.aiDraftRecordType,
+    ai_draft_colony_id: row.aiDraftColonyId,
+    ai_draft_notes: row.aiDraftNotes,
     created_at: toIso(row.createdAt),
     updated_at: toIso(row.updatedAt),
   };
@@ -333,6 +412,12 @@ export function toRecordTranscriptRemotePayload(row: typeof recordTranscripts.$i
 const ENTITY_ADAPTERS: Record<SyncableTableName, EntityAdapter> = {
   apiaries: makeAdapter(apiaries, fromApiaryRemoteRow, toApiaryRemotePayload as never),
   colonies: makeAdapter(colonies, fromColonyRemoteRow, toColonyRemotePayload as never),
+  hives: makeAdapter(hives, fromHiveRemoteRow, toHiveRemotePayload as never),
+  colony_hive_assignments: makeAdapter(
+    colonyHiveAssignments,
+    fromColonyHiveAssignmentRemoteRow,
+    toColonyHiveAssignmentRemotePayload as never,
+  ),
   visits: makeAdapter(visits, fromVisitRemoteRow, toVisitRemotePayload as never),
   visit_colonies: makeAdapter(visitColonies, fromVisitColonyRemoteRow, toVisitColonyRemotePayload as never),
   records: makeAdapter(records, fromRecordRemoteRow, toRecordRemotePayload as never),

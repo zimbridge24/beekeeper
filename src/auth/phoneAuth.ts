@@ -1,4 +1,5 @@
 import { supabase } from '../supabase/client';
+import { upsertLocalUser } from './session';
 
 // Supabase phone auth expects E.164 (+82...). Accepts common Korean input
 // shapes ("010-1234-5678", "01012345678") and converts the leading 0 to +82.
@@ -22,6 +23,11 @@ export async function sendPhoneOtp(rawPhone: string): Promise<void> {
 }
 
 export async function verifyPhoneOtp(rawPhone: string, token: string): Promise<void> {
-  const { error } = await supabase.auth.verifyOtp({ phone: toE164Korea(rawPhone), token, type: 'sms' });
+  const { data, error } = await supabase.auth.verifyOtp({ phone: toE164Korea(rawPhone), token, type: 'sms' });
   if (error) throw error;
+  // Write the local `users` row here rather than waiting on
+  // AuthProvider's onAuthStateChange listener — that fires asynchronously
+  // and isn't awaited, so a caller navigating right after this resolves
+  // could still see isAuthenticated as false.
+  if (data.user) await upsertLocalUser(data.user);
 }

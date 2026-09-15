@@ -1,0 +1,36 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "base": {
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://tsowznsmuspfqhsoybew.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRzb3d6bnNtdXNwZnFoc295YmV3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNjU0NzIsImV4cCI6MjEwMzk0MTQ3Mn0.zJ3G2hM-LxTjpf_oxTGnSzseQYs_APXvHr1dRtARRf0",
+        "EXPO_PUBLIC_STT_PROVIDER": "clova",
+        "EXPO_PUBLIC_INSPECTION_AI_PROVIDER": "gemini",
+        "EXPO_PUBLIC_WEATHER_PROVIDER": "kma"
+      }
+    },
+    "development": {
+      "extends": "base",
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "extends": "base",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "extends": "base",
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

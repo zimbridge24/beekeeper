@@ -1,30 +1,49 @@
+import { router } from 'expo-router';
 import { useState } from 'react';
-import { Text, View } from 'react-native';
+import { Image, Text, useWindowDimensions, View } from 'react-native';
 
-import { signInWithEmail, signUpWithEmail } from '../../auth/emailAuth';
 import { sendPhoneOtp, verifyPhoneOtp } from '../../auth/phoneAuth';
 import { Button } from '../../components/Button';
 import { Screen } from '../../components/Screen';
 import { TextField } from '../../components/TextField';
-import { colors, fontFamilies, fontSizes, spacing } from '../../theme/tokens';
+import { colors, fontFamilies, fontSizes, radius, spacing } from '../../theme/tokens';
 
-type Mode = 'choose' | 'phone_enter' | 'phone_otp' | 'email';
+type Mode = 'phone_enter' | 'phone_otp';
+
+// Actual pixel size of assets/beehero-banner.jpg — used to size it to the
+// screen width at its native aspect ratio (a literal width/height, not
+// `width:'100%' + aspectRatio`, which renders at the wrong scale in a flex
+// column — see SplashView.tsx for the same fix).
+const BANNER_ASPECT_RATIO = 1794 / 877;
 
 function ErrorText({ children }: { children: string }) {
   return <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.xs, color: '#C1443A' }}>{children}</Text>;
 }
 
 export default function LoginScreen() {
-  const [mode, setMode] = useState<Mode>('choose');
+  const { width: screenWidth } = useWindowDimensions();
+  const bannerWidth = screenWidth - spacing.xl * 2;
+  const bannerHeight = bannerWidth / BANNER_ASPECT_RATIO;
+
+  const [mode, setMode] = useState<Mode>('phone_enter');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
 
-  const [emailMode, setEmailMode] = useState<'signin' | 'signup'>('signin');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  // Supabase's raw auth error messages are English and easy to miss inside
+  // the small ErrorText — translate the ones users actually hit here.
+  const describeAuthError = (err: unknown): string => {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/expired or is invalid/i.test(message)) {
+      return '인증번호가 만료되었거나 올바르지 않아요. "번호 다시 입력"을 눌러 인증번호를 새로 받아주세요.';
+    }
+    if (/security purposes/i.test(message) || /rate limit/i.test(message)) {
+      return '인증번호를 너무 자주 요청했어요. 잠시 후 다시 시도해주세요.';
+    }
+    return message;
+  };
 
   const withLoading = async (fn: () => Promise<void>) => {
     setError(null);
@@ -32,7 +51,7 @@ export default function LoginScreen() {
     try {
       await fn();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(describeAuthError(err));
     } finally {
       setLoading(false);
     }
@@ -44,26 +63,26 @@ export default function LoginScreen() {
   });
 
   const handleVerifyOtp = () => withLoading(async () => {
-    await verifyPhoneOtp(phone, otp);
-  });
-
-  const handleEmailSubmit = () => withLoading(async () => {
-    if (emailMode === 'signin') {
-      await signInWithEmail(email.trim(), password);
-    } else {
-      await signUpWithEmail(email.trim(), password);
+    try {
+      await verifyPhoneOtp(phone, otp);
+    } catch (err) {
+      // Clear the stale code so a failed attempt can't be blindly
+      // resubmitted unchanged — each failed/re-sent OTP invalidates the
+      // previous one, so re-tapping "확인" with the same digits always
+      // fails again with the same confusing error.
+      setOtp('');
+      throw err;
     }
+    // Stack.Protected re-guards reactively, but don't rely on that alone —
+    // send the user to "/" explicitly so index.tsx's routing runs right
+    // away instead of leaving them stranded on this screen.
+    router.replace('/');
   });
-
-  const backToChoose = () => {
-    setMode('choose');
-    setError(null);
-  };
 
   return (
     <Screen>
       <View style={{ gap: 4, marginTop: spacing.xxxl }}>
-        <View style={{ width: 56, height: 56, backgroundColor: colors.accent, borderRadius: 16 }} />
+        <Image source={require('../../../assets/beehero-face.png')} style={{ width: 56, height: 56 }} resizeMode="contain" />
         <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.display4, color: colors.textPrimary, marginTop: spacing.xxl }}>
           로그인하고 시작하기
         </Text>
@@ -73,13 +92,6 @@ export default function LoginScreen() {
       </View>
 
       <View style={{ gap: spacing.md, marginTop: spacing.xxl }}>
-        {mode === 'choose' && (
-          <>
-            <Button label="휴대폰 번호로 계속하기" onPress={() => setMode('phone_enter')} />
-            <Button label="이메일로 계속하기" variant="surface" onPress={() => setMode('email')} />
-          </>
-        )}
-
         {mode === 'phone_enter' && (
           <View style={{ gap: spacing.lg }}>
             <TextField
@@ -96,7 +108,6 @@ export default function LoginScreen() {
               loading={loading}
               disabled={phone.replace(/\D/g, '').length < 10}
             />
-            <Button label="뒤로" variant="ghost" onPress={backToChoose} />
           </View>
         )}
 
@@ -129,33 +140,6 @@ export default function LoginScreen() {
             />
           </View>
         )}
-
-        {mode === 'email' && (
-          <View style={{ gap: spacing.lg }}>
-            <TextField
-              label="이메일"
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              placeholder="you@example.com"
-            />
-            <TextField label="비밀번호" value={password} onChangeText={setPassword} secureTextEntry placeholder="6자 이상" />
-            {error && <ErrorText>{error}</ErrorText>}
-            <Button
-              label={emailMode === 'signin' ? '로그인' : '회원가입'}
-              onPress={handleEmailSubmit}
-              loading={loading}
-              disabled={!email || !password}
-            />
-            <Button
-              label={emailMode === 'signin' ? '계정이 없으신가요? 회원가입' : '이미 계정이 있으신가요? 로그인'}
-              variant="ghost"
-              onPress={() => setEmailMode((m) => (m === 'signin' ? 'signup' : 'signin'))}
-            />
-            <Button label="뒤로" variant="ghost" onPress={backToChoose} />
-          </View>
-        )}
       </View>
 
       <Text
@@ -169,6 +153,12 @@ export default function LoginScreen() {
       >
         계속하면 이용약관 및 개인정보 처리방침에 동의합니다
       </Text>
+
+      <Image
+        source={require('../../../assets/beehero-banner.jpg')}
+        style={{ width: bannerWidth, height: bannerHeight, borderRadius: radius.cardLarge, marginTop: spacing.xxl }}
+        resizeMode="cover"
+      />
     </Screen>
   );
 }

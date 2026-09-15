@@ -34,6 +34,13 @@ export default function AccountScreen() {
           setSigningOut(true);
           try {
             await signOut();
+            // Stack.Protected re-guards on state change, but don't rely on
+            // that alone to fire promptly from deep inside nested (tabs)
+            // navigators — send the user back to "/" explicitly so
+            // index.tsx's own routing logic re-runs immediately.
+            router.replace('/');
+          } catch (err) {
+            Alert.alert('로그아웃 실패', err instanceof Error ? err.message : String(err));
           } finally {
             setSigningOut(false);
           }
@@ -55,6 +62,7 @@ export default function AccountScreen() {
             setDeleting(true);
             try {
               await deleteAccount();
+              router.replace('/');
             } catch (err) {
               Alert.alert('삭제 실패', err instanceof Error ? err.message : String(err));
             } finally {

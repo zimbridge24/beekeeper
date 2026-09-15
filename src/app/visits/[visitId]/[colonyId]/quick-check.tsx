@@ -4,15 +4,15 @@ import { ScrollView, Text, View } from 'react-native';
 
 import { Button } from '../../../../components/Button';
 import { Card } from '../../../../components/Card';
+import { FieldStateSelector } from '../../../../components/FieldStateSelector';
 import { ForwardChevronIcon } from '../../../../components/icons';
 import { PhotoPicker, PickedPhoto } from '../../../../components/PhotoPicker';
 import { Screen } from '../../../../components/Screen';
 import { ScreenHeader } from '../../../../components/ScreenHeader';
 import { TextField } from '../../../../components/TextField';
-import { TriState, TriStateField } from '../../../../components/TriStateField';
 import { DETAIL_RECORD_TYPES, QUICK_CHECK_FIELDS } from '../../../../features/records/recordTypesConfig';
 import { useColony } from '../../../../repositories/colonyRepository';
-import { createQuickRecord, FieldValueState } from '../../../../repositories/recordRepository';
+import { createQuickRecord } from '../../../../repositories/recordRepository';
 import { upsertVisitColonyStatus } from '../../../../repositories/visitRepository';
 import { colors, fontFamilies, fontSizes, spacing } from '../../../../theme/tokens';
 
@@ -21,12 +21,12 @@ export default function QuickCheckScreen() {
   const { data: colonyRows } = useColony(colonyId);
   const colony = colonyRows?.[0];
 
-  const [values, setValues] = useState<Record<string, TriState>>({});
+  const [values, setValues] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState('');
   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
   const [saving, setSaving] = useState(false);
 
-  const setField = (key: string, state: TriState) => setValues((prev) => ({ ...prev, [key]: state }));
+  const setField = (key: string, state: string) => setValues((prev) => ({ ...prev, [key]: state }));
 
   const handleSave = async () => {
     setSaving(true);
@@ -36,7 +36,7 @@ export default function QuickCheckScreen() {
         colonyId,
         recordType: 'general_observation',
         fields: QUICK_CHECK_FIELDS,
-        values: values as Record<string, FieldValueState>,
+        values,
         notes: notes.trim() || null,
         photos,
       });
@@ -53,9 +53,10 @@ export default function QuickCheckScreen() {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingTop: spacing.lg }}>
         <View style={{ gap: spacing.xl }}>
           {QUICK_CHECK_FIELDS.map((field) => (
-            <TriStateField
+            <FieldStateSelector
               key={field.key}
               label={field.label}
+              kind={field.kind}
               value={values[field.key]}
               onChange={(v) => setField(field.key, v)}
             />

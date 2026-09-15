@@ -11,7 +11,11 @@ import { insertPhotosForRecord } from './photoRepository';
 import { DbOrTx, enqueueOutbox } from '../sync/outbox';
 import { toRecordFieldValueRemotePayload, toRecordRemotePayload, toRecordTranscriptRemotePayload } from '../sync/tables';
 
-export type FieldValueState = 'present' | 'absent' | 'unknown' | 'unset';
+// A field's valid tokens depend on its kind (see FieldKind in
+// recordTypesConfig.ts) — this stays a bare string rather than a fixed
+// union so the type doesn't have to enumerate every kind's vocabulary.
+// DB-level CHECK constraints are the real guard against garbage values.
+export type FieldValueState = string;
 
 type InsertRecordCoreParams = {
   recordId: string;
@@ -23,6 +27,10 @@ type InsertRecordCoreParams = {
   notes: string | null;
   fields: RecordTypeField[];
   values: Record<string, FieldValueState>;
+  // AI's original (pre-edit) guess per field, for voice_ai records only —
+  // stored alongside the user's final valueState so it can never be lost to
+  // a later edit. Undefined for quick_select (no AI involved).
+  aiDraftValues?: Record<string, FieldValueState>;
   photos: PickedPhoto[];
   now: number;
 };
@@ -33,7 +41,7 @@ type InsertRecordCoreParams = {
 // never possible and can't be confused with an explicit 확인하지 않음 answer) —
 // plus any attached photos.
 async function insertRecordCore(tx: DbOrTx, params: InsertRecordCoreParams): Promise<void> {
-  const { recordId, userId, visitId, colonyId, inputMethod, recordType, notes, fields, values, photos, now } = params;
+  const { recordId, userId, visitId, colonyId, inputMethod, recordType, notes, fields, values, aiDraftValues, photos, now } = params;
 
   await tx.insert(records).values({
     id: recordId,
@@ -67,6 +75,7 @@ async function insertRecordCore(tx: DbOrTx, params: InsertRecordCoreParams): Pro
       category: field.category,
       fieldKey: field.key,
       valueState,
+      aiDraftValueState: aiDraftValues?.[field.key] ?? null,
       createdAt: now,
       updatedAt: now,
       syncStatus: '기기 내 저장',
@@ -129,10 +138,19 @@ export type CreateVoiceRecordInput = {
   audioLocalUri?: string | null;
   audioDurationSec?: number | null;
   photos?: PickedPhoto[];
+  // AI's original proposal, captured before any user edits — see
+  // record_transcripts.aiDraft* / record_field_values.aiDraftValueState in
+  // schema.ts for why these are kept permanently separate from the final
+  // (possibly user-corrected) values above.
+  aiDraftValues?: Record<string, FieldValueState>;
+  aiDraftColonyId?: string | null;
+  aiDraftNotes?: string | null;
 };
 
 // Same as createQuickRecord, plus a 1:1 `record_transcripts` row holding the
-// (mock) STT transcript and AI confidence score for the review screen.
+// STT transcript, AI confidence score, and the AI's original structuring
+// draft (record_field_values.aiDraftValueState carries the per-field half of
+// that draft).
 export async function createVoiceRecord(input: CreateVoiceRecordInput): Promise<string> {
   const recordId = randomUUID();
   const transcriptId = randomUUID();
@@ -150,6 +168,7 @@ export async function createVoiceRecord(input: CreateVoiceRecordInput): Promise<
       notes: input.notes ?? null,
       fields: input.fields,
       values: input.values,
+      aiDraftValues: input.aiDraftValues,
       photos: input.photos ?? [],
       now,
     });
@@ -163,6 +182,9 @@ export async function createVoiceRecord(input: CreateVoiceRecordInput): Promise<
       rawTranscript: input.rawTranscript,
       structuringStatus: 'structured',
       aiConfidenceScore: input.aiConfidenceScore,
+      aiDraftRecordType: input.recordType,
+      aiDraftColonyId: input.aiDraftColonyId ?? null,
+      aiDraftNotes: input.aiDraftNotes ?? null,
       createdAt: now,
       updatedAt: now,
       syncStatus: '기기 내 저장',

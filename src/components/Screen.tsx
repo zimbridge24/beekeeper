@@ -19,6 +19,7 @@ export function Screen({ children, footer, scroll = true, padded = true, dark = 
       {scroll ? (
         <ScrollView
           style={{ flex: 1 }}
+          keyboardShouldPersistTaps="handled"
           contentContainerStyle={{
             paddingHorizontal: padded ? spacing.xl : 0,
             paddingTop: spacing.md,
