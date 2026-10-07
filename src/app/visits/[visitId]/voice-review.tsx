@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 
 import type { StructuredRecordDraft } from '../../../ai';
 import { Button } from '../../../components/Button';
@@ -17,6 +17,7 @@ import {
   EMPTY_INPUT_STATE,
   FieldInputState,
   getFieldsForRecordType,
+  getMissingRequiredFields,
   GENERAL_RECORD_TITLE,
   hasAnyValue,
   pruneHiddenValues,
@@ -105,6 +106,15 @@ export default function VoiceReviewScreen() {
     }
     // 아무 필드도 못 채웠어도(예: 메모만 남기는 발화) 원문 전사가 사라지지 않게 빈 빠른 기록으로 남긴다.
     if (built.length === 0) built.push({ recordType: 'general_observation', state: EMPTY_INPUT_STATE, aiDraft: EMPTY_INPUT_STATE });
+
+    // 방제처럼 필수 항목이 있는 영역은 비워두고 저장할 수 없다 (AI가 약제 성분을 못 들었으면 직접 고른다).
+    for (const section of built) {
+      const missing = getMissingRequiredFields(getFieldsForRecordType(section.recordType), section.state);
+      if (missing.length > 0) {
+        Alert.alert(`${RECORD_TYPE_LABELS[section.recordType]}: ${missing.map((f) => f.label).join(', ')}을(를) 골라주세요`, missing.map((f) => f.hint).filter(Boolean).join('\n') || undefined);
+        return;
+      }
+    }
 
     setSaving(true);
     try {

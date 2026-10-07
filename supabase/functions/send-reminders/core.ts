@@ -20,6 +20,8 @@ export type SettingsRow = {
   post_treatment: boolean;
   wintering: boolean;
   trend: boolean;
+  // 0010 이전 행에는 없을 수 있다 — 없으면 켜진 것으로 본다.
+  treatment_season?: boolean;
   timezone: string;
   last_evaluated_on: string | null;
 };
@@ -121,7 +123,13 @@ const pad = (n: number) => String(n).padStart(2, '0');
 export function toReminderSettings(row: SettingsRow): ReminderSettings {
   return {
     consent: row.consent,
-    categories: { mite: row.mite, post_treatment: row.post_treatment, wintering: row.wintering, trend: row.trend },
+    categories: {
+      mite: row.mite,
+      post_treatment: row.post_treatment,
+      wintering: row.wintering,
+      trend: row.trend,
+      treatment_season: row.treatment_season ?? true,
+    },
   };
 }
 

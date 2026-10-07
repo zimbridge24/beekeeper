@@ -64,7 +64,7 @@ export function RecordFieldsForm({ fields, state, onChange, aiSuggestedKeys }: P
           <View key={field.key} style={{ gap: 4 }}>
             {aiSuggested && <AiBadge />}
             <FieldStateSelector
-              label={field.label}
+              label={field.required ? `${field.label} (필수)` : field.label}
               kind={field.kind}
               value={state.values[field.key]}
               onChange={(v) => onChange({ ...state, values: { ...state.values, [field.key]: v } })}

@@ -17,15 +17,8 @@ import type { Season } from './time.ts';
 export type { MiteMetricUnit } from './miteThresholds.ts';
 
 // recordTypesConfig의 mite_method 토큰과 같다. 위험단계 수치를 계산할 수 있는 방법은
-// 아래 셋뿐이고(사진으로 응애를 셀 수 있는 방법도 이 셋), 수벌방 검사·육안 확인·기타는
-// 개수만 기록하고 위험단계는 계산하지 않는다.
-export type MiteMethod = 'sticky_board' | 'sugar_roll' | 'alcohol_wash';
-
-export const PHOTO_MITE_METHODS: { value: MiteMethod; label: string }[] = [
-  { value: 'sugar_roll', label: '가루설탕법' },
-  { value: 'sticky_board', label: '철망/끈끈이판' },
-  { value: 'alcohol_wash', label: '알코올 워시' },
-];
+// 아래 넷뿐이고, 수벌방 검사·육안 확인·기타는 개수만 기록하고 위험단계는 계산하지 않는다.
+export type MiteMethod = 'comb_count' | 'sticky_board' | 'sugar_roll' | 'alcohol_wash';
 
 export function getMiteMethodLabel(method: string | null | undefined): string {
   return FIELD_KIND_OPTIONS.mite_method.find((m) => m.value === method)?.label ?? '응애 검사';
@@ -78,7 +71,10 @@ export function assessMite(input: MiteAssessmentInput): MiteAssessment {
 
   // 검사 분모(벌 수) 또는 관찰 기간 — 방법이 정한 단위로 응애 수를 환산한다.
   let metricValue: number;
-  if (metric === 'per_day') {
+  if (metric === 'per_comb') {
+    // 벌집판 한 장에서 센 마릿수 그대로가 기준값이다 (분모 없음).
+    metricValue = miteCount;
+  } else if (metric === 'per_day') {
     if (!observationDays || observationDays <= 0) return { ...NONE, missing: '끈끈이판을 며칠 둔 건지 입력해주세요.' };
     metricValue = Math.round((miteCount / observationDays) * 10) / 10;
   } else {
@@ -100,6 +96,7 @@ export function assessMite(input: MiteAssessmentInput): MiteAssessment {
 
 export function formatMiteMetric(value: number | null | undefined, unit: string | null | undefined): string {
   if (value === null || value === undefined) return '';
+  if (unit === 'per_comb') return `벌집판 한 장당 ${value}마리`;
   if (unit === 'per_day') return `하루 ${value}마리`;
   if (unit === 'percent_bees') return `벌 100마리당 ${value}마리`;
   return String(value);

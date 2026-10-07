@@ -119,6 +119,9 @@ export function openReminderTarget(target: ReminderTarget): void {
     case 'wintering':
       router.push('/health/wintering');
       return;
+    case 'wintering_tips':
+      router.push('/health/wintering/tips');
+      return;
   }
 }
 

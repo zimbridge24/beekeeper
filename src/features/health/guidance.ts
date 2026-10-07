@@ -6,16 +6,43 @@ export type Guidance = { headline: string; actions: string[]; recheckInDays: num
 // 이 안내문은 "참고 기준으로 계산한 결과"에 대한 제안이지 진단이나 처방이 아니다.
 // 그래서 문장은 단정("~입니다/~하세요")보다 "~로 나타났어요/~해 보세요"로 쓴다.
 // 약제 이름/용량은 일부러 적지 않는다 — 국내 등록 약제와 사용 기준은 지역·시기마다
-// 다르므로 농업기술센터/양봉협회 지침을 따르도록 안내만 한다.
-export function getMiteGuidance(risk: RiskLevel | null): Guidance {
+// 다르므로 농업기술센터/양봉협회 지침을 따르도록 안내만 한다. 다만 "같은 성분을 연속 사용하지
+// 않고 교차 사용"하라는 일반 권고는 모든 방제 안내에 함께 적는다.
+const ROTATION_ACTION = '방제할 때는 직전과 같은 성분을 연속해서 쓰지 않고 성분을 바꿔가며(교차) 쓰는 것이 권고돼요.';
+
+export function getMiteGuidance(risk: RiskLevel | null, thresholdId?: string | null): Guidance {
+  // 농진청 벌집판당 기준이면 그 기준이 말하는 단계 이름(검사 주기 확대 / 방제 / 집중 방제)을 쓴다.
+  if (thresholdId === 'rda.per_comb' && risk) {
+    if (risk === 'high') {
+      return {
+        headline: '농진청 기준으로 벌집판 한 장당 30마리 이상이에요. 집중 방제 단계로 나타났어요.',
+        actions: ['지역 농업기술센터나 양봉협회 지침과 함께 방제 계획을 확인해 보세요.', ROTATION_ACTION, '방제 1~2주 뒤 같은 방법으로 다시 세어 변화를 확인해 보세요.'],
+        recheckInDays: 10,
+      };
+    }
+    if (risk === 'caution') {
+      return {
+        headline: '농진청 기준으로 벌집판 한 장당 10마리 이상이에요. 방제가 필요한 단계로 나타났어요.',
+        actions: ['방제를 검토하고, 방제 후에는 같은 방법으로 다시 세어 변화를 확인해 보세요.', ROTATION_ACTION],
+        recheckInDays: 10,
+      };
+    }
+    return {
+      headline: '농진청 기준으로 벌집판 한 장당 10마리 미만이에요. 검사 주기를 넓혀도 되는 단계로 나타났어요.',
+      actions: ['활동기에는 정기적으로(격주~월 1회) 계속 확인해 보세요.', '다른 봉군과 같은 방법으로 세면 비교하기 좋아요.'],
+      recheckInDays: 30,
+    };
+  }
+
   switch (risk) {
     case 'high':
       return {
         headline: '응애 수치가 참고 기준보다 높게 나타났어요. 방제를 검토해 보세요.',
         actions: [
           '방제가 필요한지 지역 농업기술센터나 양봉협회 지침과 함께 확인해 보세요 (약제·시기는 지역마다 달라요).',
+          ROTATION_ACTION,
           '방제를 했다면 1~2주 뒤에 같은 방법으로 다시 검사해서 변화를 확인해 보세요.',
-          '월동 전이라면 월동 준비도에서 봉세·먹이와 함께 살펴보세요.',
+          '월동 전이라면 월동 점검에서 봉세·먹이와 함께 살펴보세요.',
         ],
         recheckInDays: 14,
       };

@@ -237,12 +237,20 @@ export const FIELD_VALUE_STATE_VALUES = [
   'weak_survived',
   'lost',
   // 응애 검사 방법
+  'comb_count',
   'sugar_roll',
   'alcohol_wash',
   'sticky_board',
   'drone_brood',
   'visual',
   'other_method',
+  // 방제 약제 성분
+  'amitraz',
+  'coumaphos',
+  'formic_acid',
+  'oxalic_acid',
+  'other_ingredient',
+  'unknown_ingredient',
   // 급이 종류 · 단위
   'sugar_syrup',
   'pollen_cake',

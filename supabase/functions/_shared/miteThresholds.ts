@@ -5,9 +5,13 @@ import type { Season } from './time.ts';
 
 // 응애 위험단계(낮음/주의/높음)를 가르는 "참고 기준" 저장소.
 //
-// 검증된 한국 현장 기준이 아직 없어서, 지금 들어 있는 건 일반적으로 통용되는 참고값(generic)
-// 둘뿐이다. 품종·계절별 기준을 지어내지 않는다 — 대신 나중에 전문가 검증을 거친 기준을
-// 이 배열에 "추가하기만 하면" 되도록 선택 규칙을 먼저 만들어 두었다:
+// 국내 공식 기준(농촌진흥청)을 우선한다:
+//   - 벌집판 한 장당 10마리 미만 → 검사 주기 확대 / 10마리 이상 → 방제 / 30마리 이상 → 집중 방제
+//     (농진청 AI 응애 분석 'BeeSion' 발표, 정책뉴스 2025)
+//   - 가루설탕법 감염률(벌 100마리당 응애 %) 10% 이하 관리 (농진청 보도자료 '7월 제때 방제')
+// 공식 자료에 없는 방법(알코올 워시·끈끈이판)은 일반 참고값(generic)으로만 계산하고, 화면에
+// "국내 공식 기준이 아님"을 함께 보여준다. 품종·계절별 기준은 지어내지 않는다 — 나중에 검증된
+// 기준을 이 배열에 "추가하기만 하면" 되도록 선택 규칙을 먼저 만들어 두었다:
 //
 //   1) 검사 방법   — method가 맞는(또는 method 제한이 없는) 프로필만 후보
 //   2) 분모/관찰기간 — 방법이 정하는 측정 단위(벌 100마리당 % / 하루 평균)가 같은 것만 후보
@@ -19,7 +23,7 @@ import type { Season } from './time.ts';
 // 프로필마다 id·version·source·status를 들고 있어서, 어떤 기준으로 계산했는지 나중에 기록에
 // 함께 저장·표시할 수 있다.
 
-export type MiteMetricUnit = 'percent_bees' | 'per_day';
+export type MiteMetricUnit = 'percent_bees' | 'per_day' | 'per_comb';
 export type Species = 'western' | 'native';
 
 // generic_reference: 일반 참고값(검증 전)  /  validated: 전문가·공식 자료로 검증된 기준
@@ -43,13 +47,37 @@ export type MiteThresholdProfile = {
   high: number;
 };
 
+const GENERIC_SOURCE = '일반적으로 통용되는 참고값 — 국내 공식 기준이 아니에요';
+
 export const MITE_THRESHOLD_PROFILES: readonly MiteThresholdProfile[] = [
+  {
+    id: 'rda.per_comb',
+    version: '2025',
+    source: '농촌진흥청 발표 기준: 벌집판 한 장당 10마리 미만 검사 주기 확대 · 10마리 이상 방제 · 30마리 이상 집중 방제',
+    status: 'validated',
+    label: '농진청 기준(벌집판당)',
+    metric: 'per_comb',
+    methods: ['comb_count'],
+    caution: 10,
+    high: 30,
+  },
+  {
+    id: 'rda.percent_bees.sugar_roll',
+    version: '2024',
+    source: '농촌진흥청: 응애 감염률(벌 100마리당) 10% 이하 관리 — 10% 이상이면 방제를 권해요 (이 자료에는 그보다 높은 단계 기준이 없어요)',
+    status: 'validated',
+    label: '농진청 기준(감염률 10%)',
+    metric: 'percent_bees',
+    methods: ['sugar_roll'],
+    caution: 10,
+    high: Infinity,
+  },
   {
     id: 'generic.percent_bees',
     version: '1',
-    source: '일반적으로 통용되는 참고값 (전문가 검증 전)',
+    source: GENERIC_SOURCE,
     status: 'generic_reference',
-    label: '일반 참고 기준',
+    label: '일반 참고 기준(국내 공식 아님)',
     metric: 'percent_bees',
     methods: ['sugar_roll', 'alcohol_wash'],
     caution: 2,
@@ -58,9 +86,9 @@ export const MITE_THRESHOLD_PROFILES: readonly MiteThresholdProfile[] = [
   {
     id: 'generic.per_day',
     version: '1',
-    source: '일반적으로 통용되는 참고값 (전문가 검증 전)',
+    source: GENERIC_SOURCE,
     status: 'generic_reference',
-    label: '일반 참고 기준',
+    label: '일반 참고 기준(국내 공식 아님)',
     metric: 'per_day',
     methods: ['sticky_board'],
     caution: 5,
@@ -71,6 +99,7 @@ export const MITE_THRESHOLD_PROFILES: readonly MiteThresholdProfile[] = [
 // 검사 방법이 측정 단위(분모)를 정한다. 여기 없는 방법(수벌방 검사·육안 확인·기타)은 개수만
 // 기록하고 위험단계는 계산하지 않는다.
 export const METRIC_BY_METHOD: Readonly<Record<string, MiteMetricUnit>> = {
+  comb_count: 'per_comb',
   sugar_roll: 'percent_bees',
   alcohol_wash: 'percent_bees',
   sticky_board: 'per_day',

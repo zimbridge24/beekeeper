@@ -1,7 +1,7 @@
 import type { RecordType } from '../../db/schema';
 import { MITE_OVERDUE_DAYS } from './ruleConstants';
 import { extractColonySeries, HealthSource, STRENGTH_LABEL } from './facts';
-import { DAY_MS, daysBetween, isActiveBeekeepingSeason, isWinteringPrepSeason, TzOffsetMin, wallClock, wallToTs } from './time';
+import { DAY_MS, daysBetween, isActiveBeekeepingSeason, isTreatmentSeason, isWinteringPrepSeason, TzOffsetMin, wallClock, wallToTs } from './time';
 
 // 점검 알림 "규칙 엔진". 앱이 알아서 아무 때나 보내는 게 아니라, 기록이 아래 규칙을
 // 충족할 때만 알림을 계획한다. 이 파일은 순수 함수라서(시계·OS 알림 API에 의존하지 않음)
@@ -10,16 +10,18 @@ import { DAY_MS, daysBetween, isActiveBeekeepingSeason, isWinteringPrepSeason, T
 //
 //   mite            마지막 응애 검사 후 일정 기간(30일) 경과
 //   post_treatment  방제 기록 후 7~14일 뒤에도 재검사 기록이 없음
-//   wintering       월동 준비 시즌인데 이번 시즌 월동 준비 기록이 없음
+//   wintering       가을(9~11월)에 월동 준비 팁을 한 번 안내하고, 월동 준비 시즌에 이번 시즌 점검 기록이 없으면 주 1회씩
 //   trend           최근 3회 내검에서 봉세가 계속 감소
+//   treatment_season 집중 방제 기간(6~10월)에 달마다 한 번 시즌 안내 — 기록 조건과 상관없이 보낸다
 
-export type ReminderCategory = 'mite' | 'post_treatment' | 'wintering' | 'trend';
+export type ReminderCategory = 'mite' | 'post_treatment' | 'wintering' | 'trend' | 'treatment_season';
 
 export const REMINDER_CATEGORIES: { key: ReminderCategory; label: string; description: string }[] = [
   { key: 'mite', label: '응애', description: '마지막 응애 검사 후 시간이 많이 지났을 때' },
   { key: 'post_treatment', label: '방제 후 재검사', description: '방제 기록 후 7~14일이 지났는데 재검사가 없을 때' },
-  { key: 'wintering', label: '월동', description: '가을철에 아직 월동 준비 기록이 없을 때' },
+  { key: 'wintering', label: '월동', description: '가을철 월동 준비 팁 안내, 아직 월동 점검 기록이 없을 때' },
   { key: 'trend', label: '봉군 상태 변화', description: '최근 3회 내검에서 봉세가 계속 줄었을 때' },
+  { key: 'treatment_season', label: '집중 방제 기간', description: '6~10월 응애 집중 방제 기간에 달마다 한 번 안내' },
 ];
 
 export type ReminderSettings = {
@@ -32,7 +34,7 @@ export type ReminderSettings = {
 // 같은 조건당 한 번(월동은 주 1회), 오전 9시에만 간다.
 export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
   consent: null,
-  categories: { mite: true, post_treatment: true, wintering: true, trend: true },
+  categories: { mite: true, post_treatment: true, wintering: true, trend: true, treatment_season: true },
 };
 
 // 앱 안에서 알림을 눌렀을 때 이동할 곳 — 알림이 단순 안내가 아니라 행동 진입점이 되게.
@@ -41,7 +43,8 @@ export type ReminderTarget =
   | { kind: 'pick_colony'; recordType: 'mite' }
   | { kind: 'colony'; colonyId: string }
   | { kind: 'colonies' }
-  | { kind: 'wintering' };
+  | { kind: 'wintering' }
+  | { kind: 'wintering_tips' };
 
 export type PlannedReminder = {
   // OS에 등록할 때 쓰는 알림 식별자.
@@ -198,16 +201,50 @@ export function planReminders(
     }
   }
 
+  // 월동 준비 팁 안내: 9월 1일부터 11월까지, 이번 시즌 월동 점검 기록이 없는 봉군이 있으면 시즌에 한 번.
+  // "월동 준비를 마치셨나요?" — 눌러서 앱에 들어오면 팁 화면이 열린다. 아래 주간 점검 알림의 첫 번째 몫이라,
+  // 이 알림이 나가는 날에는 주간 점검 알림을 따로 보내지 않는다.
+  let tipsPending = false;
+  if (settings.categories.wintering) {
+    const fireAt = nextSlot(now, tz);
+    const fw = wallClock(fireAt, tz);
+    if (fw.month >= 9 && fw.month <= 11) {
+      const tipsSeasonStart = wallToTs(fw.year, 9, 1, 0, tz);
+      const checkedTips = new Set(source.records.filter((r) => r.recordType === 'wintering_prep' && r.occurredAt >= tipsSeasonStart).map((r) => r.colonyId));
+      const needsCheck = source.colonies.some((c) => daysBetween(c.createdAt, now) >= NEW_COLONY_GRACE_DAYS && !checkedTips.has(c.id));
+      // 키에 "몇 번째 주"를 넣어 둔다 — 아래 주간 점검 알림이 이 주(와 그 이전)는 건너뛰게 해서, 팁 안내 바로 다음 날
+      // 점검 알림이 또 가지 않게 한다.
+      const key = `wintering_tips:${fw.year}:${Math.floor((fireAt - tipsSeasonStart) / (7 * DAY_MS))}`;
+      const tipsAlreadySent = Object.keys(state).some((k) => k.startsWith(`wintering_tips:${fw.year}:`) && state[k] <= now);
+      if (needsCheck && !tipsAlreadySent) {
+        tipsPending = true;
+        planned.push({
+          key,
+          memberKeys: [key],
+          category: 'wintering',
+          fireAt,
+          title: '월동 준비를 마치셨나요?',
+          body: '겨울을 나기 전에 확인하면 좋은 월동 준비 팁을 모았어요. 눌러서 확인해 보세요.',
+          target: { kind: 'wintering_tips' },
+        });
+      }
+    }
+  }
+
   // 월동 점검: 시즌 중 이번 시즌 월동 준비 기록이 없는 봉군이 있으면 주 1회, 최대 3주치.
-  if (settings.categories.wintering && isWinteringPrepSeason(now, tz)) {
+  if (settings.categories.wintering && !tipsPending && isWinteringPrepSeason(now, tz)) {
     const seasonYear = wallClock(now, tz).year;
     const seasonStartTs = wallToTs(seasonYear, 9, 1, 0, tz); // 9월 1일 0시
     const checked = new Set(source.records.filter((r) => r.recordType === 'wintering_prep' && r.occurredAt >= seasonStartTs).map((r) => r.colonyId));
     const missing = source.colonies.filter((c) => daysBetween(c.createdAt, now) >= NEW_COLONY_GRACE_DAYS && !checked.has(c.id));
 
     if (missing.length > 0) {
-      // 이번 시즌에 이미 보낸 월동 알림 수를 빼고, 남은 횟수만큼만 계획한다.
-      const sentThisSeason = Object.keys(state).filter((k) => k.startsWith(`wintering:${seasonYear}:`) && state[k] <= now).length;
+      // 이번 시즌에 이미 보낸 월동 알림(팁 안내 포함) 수를 빼고, 남은 횟수만큼만 계획한다.
+      const sentThisSeason = Object.keys(state).filter(
+        (k) => (k.startsWith(`wintering:${seasonYear}:`) || k.startsWith(`wintering_tips:${seasonYear}:`)) && state[k] <= now,
+      ).length;
+      // 팁 안내가 나간 주(와 그 이전 주)의 점검 알림은 건너뛴다.
+      const tipsWeek = Math.max(-1, ...Object.keys(state).filter((k) => k.startsWith(`wintering_tips:${seasonYear}:`) && state[k] <= now).map((k) => Number(k.split(':')[2])));
       const remaining = WINTERING_MAX_PER_SEASON - sentThisSeason;
       let plannedWintering = 0;
       for (let week = 0; week < 12 && plannedWintering < remaining; week++) {
@@ -215,7 +252,7 @@ export function planReminders(
         if (!isWinteringPrepSeason(fireAt, tz)) continue;
         const weekIndex = Math.floor((fireAt - seasonStartTs) / (7 * DAY_MS));
         const key = `wintering:${seasonYear}:${weekIndex}`;
-        if (alreadySent(key)) continue;
+        if (alreadySent(key) || weekIndex <= tipsWeek) continue;
         plannedWintering++;
         const only = missing.length === 1 ? missing[0] : null;
         planned.push({
@@ -233,7 +270,52 @@ export function planReminders(
     }
   }
 
+  // 집중 방제 기간(6~10월): 기록 조건과 상관없이 달마다 한 번. 이 시기에 응애 검사·방제를 놓치지
+  // 않게 하는 시즌 안내라서, 봉군이 하나라도 있으면 보낸다.
+  if (settings.categories.treatment_season && source.colonies.length > 0) {
+    const fireAt = nextSlot(now, tz);
+    if (isTreatmentSeason(fireAt, tz)) {
+      const w = wallClock(fireAt, tz);
+      const key = `treatment_season:${w.year}:${w.month}`;
+      if (!alreadySent(key)) {
+        const stale = source.colonies.filter((c) => {
+          const last = extractColonySeries(source, c.id).miteChecks.filter((m) => m.result !== 'indeterminate').at(-1);
+          return !last || daysBetween(last.at, now) > MITE_OVERDUE_DAYS;
+        });
+        const only = source.colonies.length === 1 ? source.colonies[0] : null;
+        planned.push({
+          key,
+          memberKeys: [key],
+          category: 'treatment_season',
+          fireAt,
+          ...seasonCopy(w.month, stale.length),
+          target: only ? { kind: 'record', recordType: 'mite', colonyId: only.id, apiaryId: only.apiaryId } : { kind: 'colonies' },
+        });
+      }
+    }
+  }
+
   return planned.sort((a, b) => a.fireAt - b.fireAt);
+}
+
+function seasonCopy(month: number, staleCount: number): { title: string; body: string } {
+  const staleLine = staleCount > 0 ? `${staleCount}개 봉군은 최근 ${MITE_OVERDUE_DAYS}일 안에 응애 검사 기록이 없어요.` : '응애 검사 기록을 최신으로 유지해 보세요.';
+  if (month === 6) {
+    return {
+      title: '응애 집중 방제 기간이 시작됐어요',
+      body: `6~10월은 꿀벌응애 집중 방제 기간이에요. ${staleLine} 방제할 때는 같은 성분을 연속해서 쓰지 않고 바꿔가며 쓰는 것이 권고돼요.`,
+    };
+  }
+  if (month === 10) {
+    return {
+      title: '월동 전 마지막 방제 시기예요',
+      body: `10월까지가 응애 집중 방제 기간이에요. ${staleLine} 월동 전에 응애 검사와 방제를 마무리했는지 확인해 보세요.`,
+    };
+  }
+  return {
+    title: '지금은 응애 집중 방제 기간이에요',
+    body: `${month}월 · ${staleLine} 검사 결과에 맞춰 방제를 검토하고, 약제 성분은 교차해서 사용하세요.`,
+  };
 }
 
 function individual(c: Candidate): Omit<PlannedReminder, 'memberKeys'> {

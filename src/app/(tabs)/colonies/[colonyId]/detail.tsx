@@ -14,7 +14,7 @@ import { ScreenHeader } from '../../../../components/ScreenHeader';
 import { records } from '../../../../db/schema';
 import { computeInsights, insightsForColony } from '../../../../features/health/colonyInsights';
 import { buildWinteringFacts, extractColonySeries } from '../../../../features/health/facts';
-import { computeWinteringReadiness } from '../../../../features/health/winteringReadiness';
+import { computeWinteringChecklist } from '../../../../features/health/winteringReadiness';
 import { openRecordForm } from '../../../../features/records/openRecordForm';
 import { daysBetween } from '../../../../features/health/time';
 import { useNow } from '../../../../features/health/useNow';
@@ -32,10 +32,10 @@ function ColonyHealthSection({ colonyId, apiaryId }: { colonyId: string; apiaryI
   const source = useHealthSource();
   const insights = useMemo(() => (source ? insightsForColony(computeInsights(source), colonyId) : []), [source, colonyId]);
   const series = useMemo(() => (source ? extractColonySeries(source, colonyId) : null), [source, colonyId]);
-  const readiness = useMemo(() => {
+  const checklist = useMemo(() => {
     if (!source) return null;
     const facts = buildWinteringFacts(source, colonyId);
-    return facts ? computeWinteringReadiness(facts) : null;
+    return facts ? computeWinteringChecklist(facts) : null;
   }, [source, colonyId]);
   const now = useNow();
 
@@ -44,7 +44,7 @@ function ColonyHealthSection({ colonyId, apiaryId }: { colonyId: string; apiaryI
 
   return (
     <View style={{ gap: spacing.md }}>
-      <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodyLg, color: colors.textPrimary }}>AI 건강체크</Text>
+      <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodyLg, color: colors.textPrimary }}>건강체크</Text>
       {insights.map((insight) => (
         <InsightCard key={insight.id} insight={insight} showColonyName={false} />
       ))}
@@ -58,11 +58,11 @@ function ColonyHealthSection({ colonyId, apiaryId }: { colonyId: string; apiaryI
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary }}>
-              월동 준비도 · {lastWinteringAt ? `${daysBetween(lastWinteringAt, now)}일 전 점검` : '점검 기록 없음'}
+              월동 점검 · {lastWinteringAt ? `${daysBetween(lastWinteringAt, now)}일 전 점검` : '점검 기록 없음'}
             </Text>
-            {readiness && readiness.band !== 'insufficient' && (
+            {checklist && (
               <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: colors.textPrimary }}>
-                {readiness.score}점 · {readiness.bandLabel}
+                충족 {checklist.okCount} · 보완 {checklist.improveCount} · 정보 없음 {checklist.unknownCount}
               </Text>
             )}
           </View>

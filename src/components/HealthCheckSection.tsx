@@ -32,7 +32,7 @@ function Tile({ emoji, label, sub, highlight, onPress }: TileProps) {
   );
 }
 
-// 홈의 "AI 건강체크" 영역 — 응애 · 월동 준비도 · 말벌 세 가지 진입점과, 기록에서
+// 홈의 "건강체크" 영역 — 응애 · 월동 점검 · 말벌 세 가지 진입점과, 기록에서
 // 찾아낸 "놓치고 있는 것" 알림을 같이 보여준다.
 export function HealthCheckSection() {
   const source = useHealthSource();
@@ -54,17 +54,17 @@ export function HealthCheckSection() {
 
   return (
     <View style={{ gap: spacing.md }}>
-      <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodyLg, color: colors.textPrimary }}>AI 건강체크</Text>
+      <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodyLg, color: colors.textPrimary }}>건강체크</Text>
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
-        <Tile emoji="🔴" label="응애 체크" sub={dangerCount > 0 ? `확인 필요 ${dangerCount}건` : '사진으로 세기'} onPress={() => openFor('mite')} />
+        <Tile emoji="🔴" label="응애 체크" sub={dangerCount > 0 ? `확인 필요 ${dangerCount}건` : '세는 법·기준 안내'} onPress={() => openFor('mite')} />
         <Tile
           emoji="❄️"
-          label="월동 준비도"
-          sub={season ? '점검할 시기예요' : '봉군별 점수'}
+          label="월동 점검"
+          sub={season ? '점검할 시기예요' : '체크리스트·팁'}
           highlight={season}
           onPress={() => router.push('/health/wintering')}
         />
-        <Tile emoji="🐝" label="말벌 체크" sub="종류·마릿수" onPress={() => openFor('hornet')} />
+        <Tile emoji="🐝" label="말벌 체크" sub="종류·마릿수 기록" onPress={() => openFor('hornet')} />
       </View>
 
       {insights.length > 0 && (

@@ -50,6 +50,13 @@
       "when": 1791276027349,
       "tag": "0006_fine_kate_bishop",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1791350744543,
+      "tag": "0007_lumpy_apocalypse",
+      "breakpoints": true
     }
   ]
 }

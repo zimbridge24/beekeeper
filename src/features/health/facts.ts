@@ -29,6 +29,7 @@ export const ANALYSIS_FIELD_KEYS = [
   'feed_status',
   'queen_status',
   'treatment_applied',
+  'treatment_ingredient',
   'mite_infestation',
   'mite_method',
   'mite_count',
@@ -81,6 +82,8 @@ export type ColonySeries = {
   food: LevelPoint[];
   queen: { at: number; present: boolean }[];
   treatments: number[];
+  // 방제 기록별 약제 성분 (기록 안 했거나 예전 기록이면 ingredient가 null). treatments와 같은 순서.
+  treatmentDetails: { at: number; ingredient: string | null }[];
   miteChecks: MiteCheckPoint[];
   hornetEvents: HornetEvent[];
   winteringChecks: WinteringCheckPoint[];
@@ -181,6 +184,7 @@ export function extractColonySeries(source: HealthSource, colonyId: string): Col
     food: [],
     queen: [],
     treatments: [],
+    treatmentDetails: [],
     miteChecks: [],
     hornetEvents: [],
     winteringChecks: [],
@@ -199,7 +203,10 @@ export function extractColonySeries(source: HealthSource, colonyId: string): Col
     if (queen === 'present') series.queen.push({ at, present: true });
     else if (queen === 'absent') series.queen.push({ at, present: false });
 
-    if (f.get('treatment_applied')?.state === 'done') series.treatments.push(at);
+    if (f.get('treatment_applied')?.state === 'done') {
+      series.treatments.push(at);
+      series.treatmentDetails.push({ at, ingredient: f.get('treatment_ingredient')?.state ?? null });
+    }
 
     const mite = buildMiteCheck(at, f, species, source.tz);
     if (mite) series.miteChecks.push(mite);
@@ -228,6 +235,7 @@ export function extractColonySeries(source: HealthSource, colonyId: string): Col
   series.food.sort((a, b) => a.at - b.at);
   series.queen.sort((a, b) => a.at - b.at);
   series.treatments.sort((a, b) => a - b);
+  series.treatmentDetails.sort((a, b) => a.at - b.at);
   series.miteChecks.sort((a, b) => a.at - b.at);
   series.hornetEvents.sort((a, b) => a.at - b.at);
   series.winteringChecks.sort((a, b) => a.at - b.at);

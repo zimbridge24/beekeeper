@@ -37,6 +37,14 @@ export function isActiveBeekeepingSeason(now: number, tz?: TzOffsetMin): boolean
   return month >= 3 && month <= 11;
 }
 
+// 정부가 정한 꿀벌응애 집중 방제 기간 (6~10월). 이 기간에는 달마다 한 번 시즌 알림을 보낸다.
+export const TREATMENT_SEASON_MONTHS = { from: 6, to: 10 };
+
+export function isTreatmentSeason(now: number, tz?: TzOffsetMin): boolean {
+  const month = wallClock(now, tz).month;
+  return month >= TREATMENT_SEASON_MONTHS.from && month <= TREATMENT_SEASON_MONTHS.to;
+}
+
 // 월동 준비 점검을 권하는 시기 (9월 중순 ~ 11월). 한국 양봉은 보통 이 무렵
 // 마지막 방제 · 먹이 보충 · 합봉을 마무리한다.
 export function isWinteringPrepSeason(now: number, tz?: TzOffsetMin): boolean {

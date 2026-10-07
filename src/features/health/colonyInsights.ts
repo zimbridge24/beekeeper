@@ -2,6 +2,7 @@ import type { RecordType } from '../../db/schema';
 import { extractColonySeries, HealthSource, STRENGTH_LABEL } from './facts';
 import { getHornetSpeciesLabel } from './hornetRisk';
 import { formatMiteMetric } from './miteRisk';
+import { consecutiveSameIngredient, getIngredientLabel } from './treatmentRotation';
 import { MITE_OVERDUE_DAYS, MITE_VERY_OVERDUE_DAYS, TREATMENT_FOLLOWUP_DAYS } from './ruleConstants';
 import { DAY_MS, daysBetween, formatMonthDay, isActiveBeekeepingSeason } from './time';
 
@@ -38,6 +39,8 @@ const NEW_COLONY_GRACE_DAYS = 14;
 const STRENGTH_TREND_WINDOW_DAYS = 60;
 const HORNET_RECENT_HIGH_DAYS = 14;
 const HORNET_REPEAT_WINDOW_DAYS = 30;
+// 같은 성분 연속 사용 안내는 마지막 방제로부터 이 기간 동안만 띄운다 (한 해가 지나면 새 시즌).
+const TREATMENT_ROTATION_WINDOW_DAYS = 120;
 
 const SEVERITY_RANK: Record<InsightSeverity, number> = { danger: 0, caution: 1, info: 2 };
 
@@ -101,6 +104,20 @@ export function computeInsights(source: HealthSource): Insight[] {
           });
         }
       }
+    }
+
+    // 3-1) 최근 두 번의 방제가 같은 성분 — 성분을 바꿔가며 쓰는 것이 권고된다
+    const sameIngredient = consecutiveSameIngredient(series.treatmentDetails);
+    if (sameIngredient && now - sameIngredient.latest.at <= TREATMENT_ROTATION_WINDOW_DAYS * DAY_MS) {
+      insights.push({
+        ...base,
+        id: `${colony.id}:treatment-same-ingredient`,
+        severity: 'caution',
+        message: `최근 두 번의 방제가 모두 ${getIngredientLabel(sameIngredient.ingredient)} 성분이에요. 같은 성분을 연속해서 쓰면 내성이 생기기 쉬워, 다음에는 성분을 바꿔 쓰는 것이 권고돼요.`,
+        actionLabel: '방제 기록 보기',
+        action: action('treatment'),
+        at: sameIngredient.latest.at,
+      });
     }
 
     // 4) 최근 3회 봉세 연속 감소

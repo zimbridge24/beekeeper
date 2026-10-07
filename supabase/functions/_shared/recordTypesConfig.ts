@@ -24,7 +24,7 @@ export type FieldCategory = 'observation' | 'problem' | 'action' | 'result';
 //   food_level           — 먹이: 충분/보통/부족/확인 안 함
 //   prep_level           — 완료/일부 완료/미완료 (월동 보온 준비)
 //   hive_condition       — 양호/확인 필요 (환기·벌통 상태)
-//   mite_method / feed_type / feed_unit / wintering_result — 선택형
+//   mite_method / treatment_ingredient / feed_type / feed_unit / wintering_result — 선택형
 //   wasp_species / wasp_count_bucket — 말벌 종류/수량 구간
 //   number — 측정값. value_number에 저장, value_state는 입력되면 'present'.
 //   text   — 짧은 자유 텍스트(약제·방법). value_text에 저장, value_state는 입력되면 'present'.
@@ -38,6 +38,7 @@ export type FieldKind =
   | 'prep_level'
   | 'hive_condition'
   | 'mite_method'
+  | 'treatment_ingredient'
   | 'feed_type'
   | 'feed_unit'
   | 'wintering_result'
@@ -96,12 +97,23 @@ export const FIELD_KIND_OPTIONS: Record<FieldKind, { value: string; label: strin
     { value: 'needs_check', label: '확인 필요' },
   ],
   mite_method: [
+    { value: 'comb_count', label: '벌집판당 세기 (농진청)' },
     { value: 'sugar_roll', label: '가루설탕법' },
     { value: 'sticky_board', label: '철망/끈끈이판' },
     { value: 'drone_brood', label: '수벌방 검사' },
     { value: 'alcohol_wash', label: '알코올 워시' },
     { value: 'visual', label: '육안 확인' },
     { value: 'other_method', label: '기타' },
+  ],
+  // 방제 약제는 "성분" 기준으로 기록한다 — 같은 성분을 연속 사용하지 않고 교차 사용하라는 권고를
+  // 확인하려면 제품명이 아니라 성분이 같은지 알아야 한다. 제품명은 선택 입력(treatment_product).
+  treatment_ingredient: [
+    { value: 'amitraz', label: '아미트라즈' },
+    { value: 'coumaphos', label: '쿠마포스' },
+    { value: 'formic_acid', label: '개미산' },
+    { value: 'oxalic_acid', label: '옥살산' },
+    { value: 'other_ingredient', label: '기타 성분' },
+    { value: 'unknown_ingredient', label: '성분 모름' },
   ],
   feed_type: [
     { value: 'sugar_syrup', label: '설탕물' },
@@ -174,6 +186,8 @@ export type RecordTypeField = {
   // "응애 검사함"을 고른 뒤에야 방법·결과 칸을 보여준다. 이 필드 자신에 값이
   // 있으면(예: 음성에서 이미 채워짐) 조건과 상관없이 보인다.
   visibleWhen?: { fieldKey: string; in: string[] };
+  // 보이는 상태에서 비워두면 저장할 수 없는 필드 (예: 방제를 했다면 약제 성분).
+  required?: boolean;
 };
 
 export type RecordTypeGroup = 'status' | 'problem' | 'action' | 'season';
@@ -210,7 +224,7 @@ export const DETAIL_RECORD_TYPES: RecordTypeConfig[] = [
     emoji: '🕷',
     group: 'problem',
     highlight: true,
-    keywords: ['응애', '설탕', '가루', '끈끈이', '철망', '알코올', '수벌방', '검사'],
+    keywords: ['응애', '설탕', '가루', '끈끈이', '철망', '알코올', '수벌방', '벌집판', '검사'],
     fields: [
       { key: 'mite_infestation', label: '응애 검사', category: 'problem', kind: 'pest_test' },
       { key: 'mite_method', label: '검사 방법', category: 'observation', kind: 'mite_method', visibleWhen: { fieldKey: 'mite_infestation', in: TESTED } },
@@ -221,7 +235,7 @@ export const DETAIL_RECORD_TYPES: RecordTypeConfig[] = [
         kind: 'number',
         unit: '마리',
         max: 500,
-        hint: '검사에서 나온 응애 마릿수',
+        hint: '검사에서 나온 응애 마릿수 (벌집판당 세기는 벌집판 한 장에서 센 마릿수)',
         visibleWhen: { fieldKey: 'mite_infestation', in: TESTED },
       },
       {
@@ -275,15 +289,24 @@ export const DETAIL_RECORD_TYPES: RecordTypeConfig[] = [
     title: '방제',
     emoji: '💊',
     group: 'action',
-    keywords: ['방제', '약제', '옥살산', '개미산', '훈증', '약 ', '약을', '처리'],
+    keywords: ['방제', '약제', '아미트라즈', '쿠마포스', '옥살산', '개미산', '훈증', '약 ', '약을', '처리'],
     fields: [
       { key: 'treatment_applied', label: '방제', category: 'action', kind: 'action_done' },
       {
-        key: 'treatment_method',
-        label: '약제·방법',
+        key: 'treatment_ingredient',
+        label: '약제 성분',
+        category: 'action',
+        kind: 'treatment_ingredient',
+        hint: '제품 겉면의 유효 성분을 골라주세요',
+        required: true,
+        visibleWhen: { fieldKey: 'treatment_applied', in: ['done'] },
+      },
+      {
+        key: 'treatment_product',
+        label: '제품명 (선택)',
         category: 'action',
         kind: 'text',
-        hint: '사용한 약제나 방법',
+        hint: '사용한 약제 제품명',
         visibleWhen: { fieldKey: 'treatment_applied', in: ['done'] },
       },
     ],
@@ -387,6 +410,8 @@ const LEGACY_FIELDS: RecordTypeField[] = [
   { key: 'honey_quality', label: '벌꿀 상태', category: 'result', kind: 'presence_observation' },
   { key: 'wintering_prep_status', label: '월동 준비 상태', category: 'observation', kind: 'presence_observation' },
   { key: 'colony_lost', label: '폐군 여부', category: 'result', kind: 'action_done' },
+  // 예전에는 약제·방법을 자유 텍스트로 받았다 — 이미 저장된 기록을 읽기 위해서만 남긴다.
+  { key: 'treatment_method', label: '약제·방법', category: 'action', kind: 'text' },
 ];
 
 const ALL_FIELDS: RecordTypeField[] = [...QUICK_CHECK_FIELDS, ...DETAIL_RECORD_TYPES.flatMap((c) => c.fields), ...LEGACY_FIELDS];
@@ -470,6 +495,11 @@ export function pruneHiddenValues(fields: RecordTypeField[], state: FieldInputSt
     else if (state.values[f.key] !== undefined) values[f.key] = state.values[f.key];
   }
   return { values, numbers, texts };
+}
+
+// 보이는 필수 필드 중 비어 있는 것 (저장 전 검사).
+export function getMissingRequiredFields(fields: RecordTypeField[], state: FieldInputState): RecordTypeField[] {
+  return getVisibleFields(fields, state).filter((f) => f.required && !hasFieldValue(f, state));
 }
 
 // 입력된 값이 하나라도 있는지 (빈 영역은 기록으로 만들지 않기 위해).

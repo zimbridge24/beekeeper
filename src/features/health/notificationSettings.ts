@@ -28,19 +28,32 @@ async function writeCache(settings: ReminderSettings): Promise<void> {
   await setAppMetaValue(REMINDER_SETTINGS_KEY, JSON.stringify(settings));
 }
 
-type SettingsRow = { consent: 'granted' | 'declined' | null; mite: boolean; post_treatment: boolean; wintering: boolean; trend: boolean };
+type SettingsRow = {
+  consent: 'granted' | 'declined' | null;
+  mite: boolean;
+  post_treatment: boolean;
+  wintering: boolean;
+  trend: boolean;
+  treatment_season: boolean;
+};
 
 function fromRow(row: SettingsRow): ReminderSettings {
   return {
     consent: row.consent,
-    categories: { mite: row.mite, post_treatment: row.post_treatment, wintering: row.wintering, trend: row.trend },
+    categories: {
+      mite: row.mite,
+      post_treatment: row.post_treatment,
+      wintering: row.wintering,
+      trend: row.trend,
+      treatment_season: row.treatment_season ?? true,
+    },
   };
 }
 
 async function fetchRemote(): Promise<ReminderSettings | null> {
   const { data, error } = await supabase
     .from('notification_settings')
-    .select('consent, mite, post_treatment, wintering, trend')
+    .select('consent, mite, post_treatment, wintering, trend, treatment_season')
     .maybeSingle();
   if (error) throw new Error(error.message);
   return data ? fromRow(data as SettingsRow) : null;
@@ -55,6 +68,7 @@ async function saveRemote(settings: ReminderSettings): Promise<void> {
       post_treatment: settings.categories.post_treatment,
       wintering: settings.categories.wintering,
       trend: settings.categories.trend,
+      treatment_season: settings.categories.treatment_season,
     },
     { onConflict: 'user_id' },
   );
