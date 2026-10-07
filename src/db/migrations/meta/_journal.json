@@ -43,6 +43,13 @@
       "when": 1788852215258,
       "tag": "0005_nervous_vanisher",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1791276027349,
+      "tag": "0006_fine_kate_bishop",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "580347628563",
+    "project_id": "beehero-d9732",
+    "storage_bucket": "beehero-d9732.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:580347628563:android:745af8b9c2e6e4e58703e6",
+        "android_client_info": {
+          "package_name": "com.beehero.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCd6UizA8s8mgcN8AQAfXLwPOp_iNRyeg0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

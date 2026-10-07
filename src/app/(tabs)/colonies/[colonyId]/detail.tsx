@@ -1,20 +1,86 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Button } from '../../../../components/Button';
 import { Card } from '../../../../components/Card';
 import { ColonyForm, ColonyFormValues } from '../../../../components/ColonyForm';
 import { ForwardChevronIcon, MicIcon } from '../../../../components/icons';
+import { InsightCard } from '../../../../components/InsightCard';
+import { ReferenceNote } from '../../../../components/ReferenceNote';
+import { RiskBadge } from '../../../../components/RiskBadge';
 import { Screen } from '../../../../components/Screen';
 import { ScreenHeader } from '../../../../components/ScreenHeader';
 import { records } from '../../../../db/schema';
+import { computeInsights, insightsForColony } from '../../../../features/health/colonyInsights';
+import { buildWinteringFacts, extractColonySeries } from '../../../../features/health/facts';
+import { computeWinteringReadiness } from '../../../../features/health/winteringReadiness';
+import { openRecordForm } from '../../../../features/records/openRecordForm';
+import { daysBetween } from '../../../../features/health/time';
+import { useNow } from '../../../../features/health/useNow';
 import { RECORD_TYPE_LABELS } from '../../../../features/records/recordTypesConfig';
 import { useApiary } from '../../../../repositories/apiaryRepository';
 import { setColonyArchived, updateColony, useColony } from '../../../../repositories/colonyRepository';
+import { useHealthSource } from '../../../../repositories/healthRepository';
 import { useRecordFieldValues, useRecordsForColony } from '../../../../repositories/recordRepository';
 import { ensureActiveVisit } from '../../../../repositories/visitRepository';
 import { colors, fontFamilies, fontSizes, spacing } from '../../../../theme/tokens';
+
+// 이 봉군의 "기억장치" — 놓치고 있는 것 알림과 응애·월동 최근 상태, 바로가기. 전부 기록의
+// 구조화 필드에서 계산한 값이다 (입력 방법과 무관).
+function ColonyHealthSection({ colonyId, apiaryId }: { colonyId: string; apiaryId: string }) {
+  const source = useHealthSource();
+  const insights = useMemo(() => (source ? insightsForColony(computeInsights(source), colonyId) : []), [source, colonyId]);
+  const series = useMemo(() => (source ? extractColonySeries(source, colonyId) : null), [source, colonyId]);
+  const readiness = useMemo(() => {
+    if (!source) return null;
+    const facts = buildWinteringFacts(source, colonyId);
+    return facts ? computeWinteringReadiness(facts) : null;
+  }, [source, colonyId]);
+  const now = useNow();
+
+  const lastMite = series?.miteChecks.filter((c) => c.result !== 'indeterminate').at(-1);
+  const lastWinteringAt = series?.winteringChecks.at(-1)?.at;
+
+  return (
+    <View style={{ gap: spacing.md }}>
+      <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodyLg, color: colors.textPrimary }}>AI 건강체크</Text>
+      {insights.map((insight) => (
+        <InsightCard key={insight.id} insight={insight} showColonyName={false} />
+      ))}
+      <Card size="medium">
+        <View style={{ gap: spacing.sm }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary }}>
+              응애 · {lastMite ? `${daysBetween(lastMite.at, now)}일 전 검사` : '검사 기록 없음'}
+            </Text>
+            <RiskBadge level={lastMite?.riskLevel} />
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary }}>
+              월동 준비도 · {lastWinteringAt ? `${daysBetween(lastWinteringAt, now)}일 전 점검` : '점검 기록 없음'}
+            </Text>
+            {readiness && readiness.band !== 'insufficient' && (
+              <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: colors.textPrimary }}>
+                {readiness.score}점 · {readiness.bandLabel}
+              </Text>
+            )}
+          </View>
+          <ReferenceNote kind="general" />
+        </View>
+      </Card>
+      <View style={{ flexDirection: 'row', gap: spacing.md }}>
+        <View style={{ flex: 1 }}>
+          <Button label="🕷 응애" variant="surface" onPress={() => openRecordForm({ apiaryId, colonyId, recordType: 'mite' })} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Button label="🐝 말벌" variant="surface" onPress={() => openRecordForm({ apiaryId, colonyId, recordType: 'hornet' })} />
+        </View>
+      </View>
+      <Button label="❄️ 월동 준비 점검" variant="surface" onPress={() => openRecordForm({ apiaryId, colonyId, recordType: 'wintering_prep' })} />
+    </View>
+  );
+}
 
 function RecordCard({ record }: { record: typeof records.$inferSelect }) {
   const { data: fieldValues } = useRecordFieldValues(record.id);
@@ -119,6 +185,8 @@ export default function ColonyDetailScreen() {
 
             <Button label="빠른 상태 선택으로 내검하기" onPress={handleQuickCheck} loading={startingCheck} />
             <Button label="AI 음성으로 내검하기" variant="accent" onPress={handleVoiceCheck} loading={startingVoiceCheck} icon={<MicIcon size={18} />} />
+
+            <ColonyHealthSection colonyId={colony.id} apiaryId={colony.apiaryId} />
 
             <Pressable onPress={() => router.push({ pathname: '/(tabs)/colonies/[colonyId]/health', params: { colonyId } })}>
               <Card size="medium" tint={colors.surfaceTint}>

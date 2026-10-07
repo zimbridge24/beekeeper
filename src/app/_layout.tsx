@@ -33,6 +33,7 @@ function AppShell() {
       <Stack.Protected guard={isAuthenticated}>
         <Stack.Screen name="(setup)" />
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="health" />
         <Stack.Screen name="sync" />
       </Stack.Protected>
     </Stack>

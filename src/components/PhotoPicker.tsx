@@ -11,6 +11,9 @@ type Props = {
   photos: PickedPhoto[];
   onChange: (photos: PickedPhoto[]) => void;
   maxPhotos?: number;
+  label?: string;
+  // 0~1. 기본 0.7(용량 절약). 응애처럼 작은 대상을 AI가 판독해야 하면 높게.
+  quality?: number;
 };
 
 // 촬영/선택한 사진은 항상 document 디렉터리로 복사해둔다 — expo-image-picker의
@@ -23,7 +26,7 @@ async function persistPickedAsset(asset: ImagePicker.ImagePickerAsset): Promise<
   return { id, uri: dest.uri, width: asset.width ?? null, height: asset.height ?? null };
 }
 
-export function PhotoPicker({ photos, onChange, maxPhotos = 5 }: Props) {
+export function PhotoPicker({ photos, onChange, maxPhotos = 5, label = '사진 (선택)', quality = 0.7 }: Props) {
   const pickFrom = async (source: 'camera' | 'library') => {
     const permission =
       source === 'camera'
@@ -39,8 +42,8 @@ export function PhotoPicker({ photos, onChange, maxPhotos = 5 }: Props) {
 
     const result =
       source === 'camera'
-        ? await ImagePicker.launchCameraAsync({ quality: 0.7 })
-        : await ImagePicker.launchImageLibraryAsync({ quality: 0.7, mediaTypes: ['images'] });
+        ? await ImagePicker.launchCameraAsync({ quality })
+        : await ImagePicker.launchImageLibraryAsync({ quality, mediaTypes: ['images'] });
     if (result.canceled || !result.assets?.[0]) return;
 
     const picked = await persistPickedAsset(result.assets[0]);
@@ -59,7 +62,7 @@ export function PhotoPicker({ photos, onChange, maxPhotos = 5 }: Props) {
 
   return (
     <View>
-      <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.sm, color: colors.textMuted }}>사진 (선택)</Text>
+      <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.sm, color: colors.textMuted }}>{label}</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs }}>
         {photos.map((photo) => (
           <View key={photo.id} style={{ width: 72, height: 72 }}>

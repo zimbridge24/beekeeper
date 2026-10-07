@@ -106,8 +106,7 @@ export default function VoiceRecordScreen() {
           // 뿐이고, 이건 "AI가 정말 뭐라고 했는지" 원본 기록용으로 따로 둔다.
           aiDraftColonyId: structured.colonyId ?? '',
           colonyLocked: lockedColonyId ? '1' : '0',
-          recordType: structured.recordType,
-          values: JSON.stringify(structured.values),
+          drafts: JSON.stringify(structured.drafts),
           notes: structured.notes ?? '',
           transcript,
           confidenceScore: String(structured.confidenceScore),

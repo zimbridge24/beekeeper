@@ -7,8 +7,12 @@ import { Screen } from '../../../components/Screen';
 import { ScreenHeader } from '../../../components/ScreenHeader';
 import { colors, fontFamilies, fontSizes, spacing } from '../../../theme/tokens';
 
-const MENU_ITEMS: { label: string; href: '/(tabs)/settings/account' | '/(tabs)/settings/permissions' | '/(tabs)/settings/data-usage' | '/sync/status' }[] = [
+const MENU_ITEMS: {
+  label: string;
+  href: '/(tabs)/settings/account' | '/(tabs)/settings/notifications' | '/(tabs)/settings/permissions' | '/(tabs)/settings/data-usage' | '/sync/status';
+}[] = [
   { label: '계정', href: '/(tabs)/settings/account' },
+  { label: '점검 알림', href: '/(tabs)/settings/notifications' },
   { label: '권한', href: '/(tabs)/settings/permissions' },
   { label: '동기화 상태', href: '/sync/status' },
   { label: '데이터 이용 안내', href: '/(tabs)/settings/data-usage' },

@@ -6,6 +6,7 @@ import { useAuth } from '../../auth/AuthProvider';
 import { getLocalUser } from '../../auth/session';
 import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
+import { HealthCheckSection } from '../../components/HealthCheckSection';
 import { HamburgerIcon } from '../../components/icons';
 import { Screen } from '../../components/Screen';
 import { useApiaries } from '../../repositories/apiaryRepository';
@@ -83,6 +84,8 @@ export default function HomeScreen() {
       </View>
 
       <Button label="AI 음성으로 내검하기" onPress={handleStartVisit} loading={startingVisit} />
+
+      <HealthCheckSection />
 
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
         <Card size="large" style={{ flex: 1 }}>

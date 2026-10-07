@@ -1,42 +1,40 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 
+import { AdditionalRecordPicker } from '../../../../components/AdditionalRecordPicker';
 import { Button } from '../../../../components/Button';
-import { Card } from '../../../../components/Card';
-import { FieldStateSelector } from '../../../../components/FieldStateSelector';
-import { ForwardChevronIcon } from '../../../../components/icons';
 import { PhotoPicker, PickedPhoto } from '../../../../components/PhotoPicker';
+import { RecordFieldsForm } from '../../../../components/RecordFieldsForm';
 import { Screen } from '../../../../components/Screen';
 import { ScreenHeader } from '../../../../components/ScreenHeader';
 import { TextField } from '../../../../components/TextField';
-import { DETAIL_RECORD_TYPES, QUICK_CHECK_FIELDS } from '../../../../features/records/recordTypesConfig';
+import { EMPTY_INPUT_STATE, FieldInputState, QUICK_CHECK_FIELDS } from '../../../../features/records/recordTypesConfig';
 import { useColony } from '../../../../repositories/colonyRepository';
-import { createQuickRecord } from '../../../../repositories/recordRepository';
+import { createRecord } from '../../../../repositories/recordRepository';
 import { upsertVisitColonyStatus } from '../../../../repositories/visitRepository';
-import { colors, fontFamilies, fontSizes, spacing } from '../../../../theme/tokens';
+import { spacing } from '../../../../theme/tokens';
 
+// 기본 내검 — 가장 자주 보는 4가지만 바로 보여준다. 응애·말벌·월동 같은 세부 기록은
+// 아래 "추가 기록"에서 필요한 것만 열어서 쓴다.
 export default function QuickCheckScreen() {
   const { visitId, colonyId } = useLocalSearchParams<{ visitId: string; colonyId: string }>();
   const { data: colonyRows } = useColony(colonyId);
   const colony = colonyRows?.[0];
 
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [state, setState] = useState<FieldInputState>(EMPTY_INPUT_STATE);
   const [notes, setNotes] = useState('');
   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
   const [saving, setSaving] = useState(false);
 
-  const setField = (key: string, state: string) => setValues((prev) => ({ ...prev, [key]: state }));
-
   const handleSave = async () => {
     setSaving(true);
     try {
-      await createQuickRecord({
+      await createRecord({
         visitId,
         colonyId,
         recordType: 'general_observation',
-        fields: QUICK_CHECK_FIELDS,
-        values,
+        state,
         notes: notes.trim() || null,
         photos,
       });
@@ -52,46 +50,13 @@ export default function QuickCheckScreen() {
       <ScreenHeader title={`${colony?.alias ?? ''} · 빠른 상태 선택`} onBack={() => router.back()} subdued />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingTop: spacing.lg }}>
         <View style={{ gap: spacing.xl }}>
-          {QUICK_CHECK_FIELDS.map((field) => (
-            <FieldStateSelector
-              key={field.key}
-              label={field.label}
-              kind={field.kind}
-              value={values[field.key]}
-              onChange={(v) => setField(field.key, v)}
-            />
-          ))}
+          <RecordFieldsForm fields={QUICK_CHECK_FIELDS} state={state} onChange={setState} />
 
           <TextField label="자유메모 (선택)" value={notes} onChangeText={setNotes} placeholder="추가로 남길 내용" multiline />
 
           <PhotoPicker photos={photos} onChange={setPhotos} />
 
-          <View>
-            <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: colors.textPrimary }}>
-              기록 유형 선택 (선택)
-            </Text>
-            <View style={{ gap: spacing.sm, marginTop: spacing.xs }}>
-              {DETAIL_RECORD_TYPES.map((rt) => (
-                <Card
-                  key={rt.recordType}
-                  size="medium"
-                  onPress={() =>
-                    router.push({
-                      pathname: '/visits/[visitId]/[colonyId]/record-form/[recordType]',
-                      params: { visitId, colonyId, recordType: rt.recordType },
-                    })
-                  }
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: colors.textPrimary }}>
-                      {rt.title}
-                    </Text>
-                    <ForwardChevronIcon />
-                  </View>
-                </Card>
-              ))}
-            </View>
-          </View>
+          <AdditionalRecordPicker visitId={visitId} colonyId={colonyId} />
         </View>
         <View style={{ height: 100 }} />
       </ScrollView>

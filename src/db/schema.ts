@@ -179,16 +179,82 @@ export const visitColonies = sqliteTable(
   ],
 );
 
+// 수동 입력·AI 음성·AI 사진 분석이 모두 같은 record_type / 같은 필드 구조를 쓴다.
+//   general_observation  빠른 상태 (여왕·봉세·먹이·이상징후)
+//   mite / hornet        문제: 응애 · 말벌
+//   pest_disease         문제: 그 밖의 질병·증상 (예전 기록의 응애·말벌 필드도 여기 남아 있다)
+//   treatment / feeding / swarm_split_requeen   조치
+//   wintering_prep / wintering_dissolution       계절관리: 월동 준비 점검 · 월동 결과/폐군
+//   honey_harvest                                 계절관리: 채밀
 export const RECORD_TYPE_VALUES = [
   'general_observation',
+  'mite',
+  'hornet',
   'pest_disease',
-  'feeding',
   'treatment',
-  'honey_harvest',
+  'feeding',
   'swarm_split_requeen',
+  'wintering_prep',
   'wintering_dissolution',
+  'honey_harvest',
 ] as const;
 export type RecordType = (typeof RECORD_TYPE_VALUES)[number];
+
+// record_field_values.value_state가 가질 수 있는 모든 토큰 — 필드 종류(kind)마다 이
+// 중 일부만 쓴다 (src/features/records/recordTypesConfig.ts의 FIELD_KIND_OPTIONS).
+// 아래 CHECK 제약과 Supabase 마이그레이션이 이 목록을 그대로 따른다.
+export const FIELD_VALUE_STATE_VALUES = [
+  // 관찰형 / 검사형 / 행동형
+  'present',
+  'absent',
+  'unknown',
+  'not_tested',
+  'tested_negative',
+  'tested_positive',
+  'indeterminate',
+  'done',
+  'not_done',
+  // 말벌
+  'asian_hornet',
+  'giant_hornet',
+  'other',
+  'unknown_species',
+  'none',
+  'few_1_5',
+  'several_6_20',
+  'many_20_plus',
+  // 봉세 · 먹이 · 월동 준비 정도
+  'strong',
+  'normal',
+  'weak',
+  'enough',
+  'low',
+  'partial',
+  'good',
+  'needs_check',
+  // 월동 결과
+  'survived',
+  'weak_survived',
+  'lost',
+  // 응애 검사 방법
+  'sugar_roll',
+  'alcohol_wash',
+  'sticky_board',
+  'drone_brood',
+  'visual',
+  'other_method',
+  // 급이 종류 · 단위
+  'sugar_syrup',
+  'pollen_cake',
+  'honey_feed',
+  'other_feed',
+  'kg',
+  'liter',
+  // 미입력
+  'unset',
+] as const;
+const FIELD_VALUE_STATE_SQL = sql.raw(FIELD_VALUE_STATE_VALUES.map((v) => `'${v}'`).join(','));
+const RECORD_TYPE_SQL = sql.raw(RECORD_TYPE_VALUES.map((v) => `'${v}'`).join(','));
 
 export const records = sqliteTable(
   'records',
@@ -205,17 +271,22 @@ export const records = sqliteTable(
     recordType: text('record_type').notNull(),
     confirmationStatus: text('confirmation_status').notNull().default('confirmed'),
     notes: text('notes'),
+    // 음성 한 번으로 여러 영역(상태·응애·말벌·급이…)이 구조화되면 영역마다 기록이
+    // 하나씩 생긴다. 같은 발화에서 나온 기록들은 대표 기록의 id를 여기에 공유한다
+    // (대표 기록이 원문 전사 record_transcripts를 가진다). 단일 입력이면 null.
+    captureGroupId: text('capture_group_id'),
     occurredAt: integer('occurred_at').notNull(),
     deletedAt: integer('deleted_at'),
     ...syncColumns(),
   },
   (t) => [
     index('records_colony_idx').on(t.colonyId, t.occurredAt),
+    index('records_capture_group_idx').on(t.captureGroupId),
     index('records_visit_idx').on(t.visitId),
-    check('records_input_method_check', sql`${t.inputMethod} IN ('voice_ai','quick_select')`),
+    check('records_input_method_check', sql`${t.inputMethod} IN ('voice_ai','quick_select','photo_ai')`),
     check(
       'records_record_type_check',
-      sql`${t.recordType} IN ('general_observation','pest_disease','feeding','treatment','honey_harvest','swarm_split_requeen','wintering_dissolution')`,
+      sql`${t.recordType} IN (${RECORD_TYPE_SQL})`,
     ),
     check('records_confirmation_status_check', sql`${t.confirmationStatus} IN ('draft','confirmed')`),
     check('records_sync_status_check', sql`${t.syncStatus} IN ('기기 내 저장','동기화 중','동기화 완료','동기화 실패')`),
@@ -257,6 +328,11 @@ export const recordFieldValues = sqliteTable(
     aiDraftValueState: text('ai_draft_value_state'),
     valueText: text('value_text'),
     valueNumber: real('value_number'),
+    // 수치형(kind === 'number') 필드에서 AI가 처음 제안한 숫자 — aiDraftValueState와
+    // 같은 이유로, 사용자가 valueNumber를 고쳐도 덮어쓰지 않는다.
+    aiDraftValueNumber: real('ai_draft_value_number'),
+    // 텍스트형(약제·방법 등) 필드의 AI 초안.
+    aiDraftValueText: text('ai_draft_value_text'),
     ...syncColumns(),
   },
   (t) => [
@@ -264,11 +340,11 @@ export const recordFieldValues = sqliteTable(
     check('record_field_values_category_check', sql`${t.category} IN ('observation','problem','action','result')`),
     check(
       'record_field_values_state_check',
-      sql`${t.valueState} IN ('present','absent','unknown','not_tested','tested_negative','tested_positive','indeterminate','done','not_done','asian_hornet','giant_hornet','other','unknown_species','none','few_1_5','several_6_20','many_20_plus','unset')`,
+      sql`${t.valueState} IN (${FIELD_VALUE_STATE_SQL})`,
     ),
     check(
       'record_field_values_ai_draft_state_check',
-      sql`${t.aiDraftValueState} IS NULL OR ${t.aiDraftValueState} IN ('present','absent','unknown','not_tested','tested_negative','tested_positive','indeterminate','done','not_done','asian_hornet','giant_hornet','other','unknown_species','none','few_1_5','several_6_20','many_20_plus','unset')`,
+      sql`${t.aiDraftValueState} IS NULL OR ${t.aiDraftValueState} IN (${FIELD_VALUE_STATE_SQL})`,
     ),
     check(
       'record_field_values_sync_status_check',
@@ -319,6 +395,41 @@ export const recordTranscripts = sqliteTable(
     ),
   ],
 );
+
+// 사진 AI 판독의 "출처" 기록. 판독 결과로 채워진 값 자체는 수동/음성 입력과 똑같이
+// records + record_field_values에 저장되고(그 필드의 ai_draft_*가 AI 최초 제안),
+// 여기에는 필드로 표현되지 않는 판독 메타데이터 — 신뢰도 · 사진 품질 · 재촬영 필요
+// 여부 · 원본 응답 — 만 따로 남긴다. 사용자가 값을 고쳐도 이 행은 바뀌지 않는다.
+export const AI_ANALYSIS_KIND_VALUES = ['mite_photo', 'hornet_photo', 'wintering_photo'] as const;
+export type AiAnalysisKind = (typeof AI_ANALYSIS_KIND_VALUES)[number];
+
+export const aiAnalyses = sqliteTable(
+  'ai_analyses',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    recordId: text('record_id')
+      .notNull()
+      .references(() => records.id),
+    kind: text('kind').notNull(),
+    confidence: text('confidence'),
+    photoQuality: text('photo_quality'),
+    retakeNeeded: integer('retake_needed', { mode: 'boolean' }).notNull().default(false),
+    resultJson: text('result_json').notNull(),
+    ...syncColumns(),
+  },
+  (t) => [
+    index('ai_analyses_record_idx').on(t.recordId),
+    check('ai_analyses_kind_check', sql`${t.kind} IN ('mite_photo','hornet_photo','wintering_photo')`),
+    check('ai_analyses_confidence_check', sql`${t.confidence} IS NULL OR ${t.confidence} IN ('low','medium','high')`),
+    check('ai_analyses_photo_quality_check', sql`${t.photoQuality} IS NULL OR ${t.photoQuality} IN ('good','fair','poor')`),
+    check('ai_analyses_sync_status_check', sql`${t.syncStatus} IN ('기기 내 저장','동기화 중','동기화 완료','동기화 실패')`),
+  ],
+);
+
+// 위험단계 — 저장하지 않고 필드 값에서 매번 계산한다 (src/features/health).
+export const RISK_LEVEL_VALUES = ['low', 'caution', 'high'] as const;
+export type RiskLevel = (typeof RISK_LEVEL_VALUES)[number];
 
 // 1:N with a record. 사진 실제 데이터는 outbox/JSON upsert 경로로 동기화하지
 // 않는다 — Supabase Storage로 직접 업로드하는 별도 경로를 쓴다 (src/sync/photos.ts).

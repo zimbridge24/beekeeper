@@ -3,6 +3,7 @@ import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HomeTabIcon, HoneycombTabIcon } from '../../components/icons';
+import { PushNotificationManager } from '../../components/PushNotificationManager';
 import { colors, fontFamilies, fontSizes } from '../../theme/tokens';
 
 function SettingsTabIcon({ focused }: { focused: boolean }) {
@@ -26,7 +27,9 @@ export default function TabsLayout() {
   const bottomPad = insets.bottom + 12;
 
   return (
-    <Tabs
+    <>
+      <PushNotificationManager />
+      <Tabs
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
@@ -53,6 +56,7 @@ export default function TabsLayout() {
         name="settings"
         options={{ title: '설정', tabBarIcon: ({ focused }) => <SettingsTabIcon focused={focused} /> }}
       />
-    </Tabs>
+      </Tabs>
+    </>
   );
 }

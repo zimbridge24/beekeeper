@@ -3,6 +3,7 @@ import type { User } from '@supabase/supabase-js';
 import { setAuthenticatedSignal } from './authSignal';
 import { setCurrentUserId } from './currentUser';
 import { db, resetLocalDatabase } from '../db/client';
+import { unregisterPush } from '../features/health/pushNotifications';
 import { users } from '../db/schema';
 import { supabase } from '../supabase/client';
 import { invokeEdgeFunction } from '../supabase/edgeFunctionClient';
@@ -40,6 +41,9 @@ export async function signOut() {
   // Local wipe must happen even if the network call fails (offline, an
   // already-expired/invalid token, etc.) — the user's intent is to be
   // signed out on this device *now*, not contingent on reachability.
+  // 이 기기가 로그아웃한 계정의 알림을 계속 받지 않도록, 세션이 살아 있는 동안(supabase 로그아웃 전에)
+  // 서버에서 이 기기의 푸시 토큰을 지운다. 실패해도 로그아웃은 막지 않는다.
+  await unregisterPush();
   try {
     await supabase.auth.signOut();
   } catch (err) {

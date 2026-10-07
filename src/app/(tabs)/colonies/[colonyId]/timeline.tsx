@@ -4,10 +4,15 @@ import { Image, ScrollView, Text, View } from 'react-native';
 
 import { Card } from '../../../../components/Card';
 import { Chip } from '../../../../components/Chip';
+import { ReferenceNote } from '../../../../components/ReferenceNote';
+import { RiskBadge } from '../../../../components/RiskBadge';
 import { Screen } from '../../../../components/Screen';
 import { ScreenHeader } from '../../../../components/ScreenHeader';
 import { records, RecordType } from '../../../../db/schema';
+import { riskLevelForRecord } from '../../../../features/health/facts';
 import {
+  formatNumberValue,
+  getFieldByKey,
   getFieldKindByKey,
   getFieldLabel,
   getFieldsForRecordType,
@@ -26,6 +31,14 @@ const FILTER_OPTIONS: { key: 'all' | RecordType; label: string }[] = [
   ...(Object.entries(RECORD_TYPE_LABELS) as [RecordType, string][]).map(([key, label]) => ({ key, label })),
 ];
 
+function MethodBadge({ label }: { label: string }) {
+  return (
+    <View style={{ paddingVertical: 3, paddingHorizontal: 9, borderRadius: 999, backgroundColor: statusColors.observe.bg }}>
+      <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.xs, color: statusColors.observe.text }}>{label}</Text>
+    </View>
+  );
+}
+
 function TimelineEntry({ record }: { record: typeof records.$inferSelect }) {
   const { data: fieldValues } = useRecordFieldValues(record.id);
   const { data: photos } = usePhotosForRecord(record.id);
@@ -37,6 +50,11 @@ function TimelineEntry({ record }: { record: typeof records.$inferSelect }) {
   const orderedFieldValues = fieldValues
     ? [...fieldValues].sort((a, b) => fieldOrder.indexOf(a.fieldKey) - fieldOrder.indexOf(b.fieldKey))
     : undefined;
+
+  const { data: colonyRows } = useColony(record.colonyId);
+  const risk = fieldValues
+    ? riskLevelForRecord(record.recordType, fieldValues, { at: record.occurredAt, species: colonyRows?.[0]?.species })
+    : null;
 
   // 날씨는 방문 단위 스냅샷이라 record.visitId로 조회한다 — 없으면(방문이
   // 날씨 기능 이전에 만들어졌거나 캡처 실패) 뱃지를 그냥 숨긴다.
@@ -73,6 +91,9 @@ function TimelineEntry({ record }: { record: typeof records.$inferSelect }) {
               {RECORD_TYPE_LABELS[record.recordType as keyof typeof RECORD_TYPE_LABELS] ?? record.recordType}
             </Text>
           </View>
+          <RiskBadge level={risk} />
+          {record.inputMethod === 'voice_ai' && <MethodBadge label="음성" />}
+          {record.inputMethod === 'photo_ai' && <MethodBadge label="사진 AI" />}
         </View>
       </View>
 
@@ -82,10 +103,22 @@ function TimelineEntry({ record }: { record: typeof records.$inferSelect }) {
         )}
         {orderedFieldValues?.map((fv) => {
           const kind = getFieldKindByKey(fv.fieldKey);
+          // 입력하지 않은 세부 항목(수치·텍스트·부모 값에 따라 열리는 항목)은 타임라인에서
+          // 숨긴다 — 항목이 늘어도 기록이 길어지지 않게. 핵심 항목의 "미입력"은 그대로 보여준다.
+          const field = getFieldByKey(fv.fieldKey);
+          if (fv.valueState === 'unset' && (kind === 'number' || kind === 'text' || field?.visibleWhen)) return null;
           return (
             <Text key={fv.id} style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textPrimary }}>
               {getFieldLabel(record.recordType as RecordType, fv.fieldKey)}:{' '}
-              <Text style={{ color: colors.textSecondary }}>{kind ? getValueStateLabel(kind, fv.valueState) : fv.valueState}</Text>
+              <Text style={{ color: colors.textSecondary }}>
+                  {kind === 'number'
+                    ? formatNumberValue(getFieldByKey(fv.fieldKey), fv.valueNumber)
+                    : kind === 'text'
+                      ? (fv.valueText ?? '미입력')
+                      : kind
+                      ? getValueStateLabel(kind, fv.valueState)
+                      : fv.valueState}
+                </Text>
             </Text>
           );
         })}
@@ -135,6 +168,7 @@ export default function ColonyTimelineScreen() {
         ))}
       </ScrollView>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingTop: spacing.lg, paddingBottom: spacing.xxxl, gap: spacing.md }}>
+        <ReferenceNote kind="general" />
         {filteredRecords?.length === 0 && (
           <Card size="large">
             <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary }}>

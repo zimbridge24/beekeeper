@@ -5,6 +5,7 @@ import {
   apiaries,
   colonies,
   colonyHiveAssignments,
+  aiAnalyses,
   hives,
   records,
   recordFieldValues,
@@ -29,6 +30,7 @@ export const SYNCABLE_TABLE_NAMES = [
   'records',
   'record_field_values',
   'record_transcripts',
+  'ai_analyses',
 ] as const;
 export type SyncableTableName = (typeof SYNCABLE_TABLE_NAMES)[number];
 
@@ -308,6 +310,7 @@ function fromRecordRemoteRow(row: RemoteRow) {
     recordType: row.record_type as string,
     confirmationStatus: row.confirmation_status as string,
     notes: (row.notes as string) ?? null,
+    captureGroupId: (row.capture_group_id as string) ?? null,
     occurredAt: toEpochMs(row.occurred_at) ?? Date.now(),
     deletedAt: toEpochMs(row.deleted_at),
     createdAt: toEpochMs(row.created_at) ?? Date.now(),
@@ -327,6 +330,7 @@ export function toRecordRemotePayload(row: typeof records.$inferSelect) {
     record_type: row.recordType,
     confirmation_status: row.confirmationStatus,
     notes: row.notes,
+    capture_group_id: row.captureGroupId,
     occurred_at: toIso(row.occurredAt),
     deleted_at: toIso(row.deletedAt),
     created_at: toIso(row.createdAt),
@@ -345,6 +349,8 @@ function fromRecordFieldValueRemoteRow(row: RemoteRow) {
     aiDraftValueState: (row.ai_draft_value_state as string) ?? null,
     valueText: (row.value_text as string) ?? null,
     valueNumber: (row.value_number as number) ?? null,
+    aiDraftValueNumber: (row.ai_draft_value_number as number) ?? null,
+    aiDraftValueText: (row.ai_draft_value_text as string) ?? null,
     createdAt: toEpochMs(row.created_at) ?? Date.now(),
     updatedAt: toEpochMs(row.updated_at) ?? Date.now(),
     syncStatus: '동기화 완료' as SyncStatus,
@@ -363,6 +369,8 @@ export function toRecordFieldValueRemotePayload(row: typeof recordFieldValues.$i
     ai_draft_value_state: row.aiDraftValueState,
     value_text: row.valueText,
     value_number: row.valueNumber,
+    ai_draft_value_number: row.aiDraftValueNumber,
+    ai_draft_value_text: row.aiDraftValueText,
     created_at: toIso(row.createdAt),
     updated_at: toIso(row.updatedAt),
   };
@@ -409,6 +417,52 @@ export function toRecordTranscriptRemotePayload(row: typeof recordTranscripts.$i
   };
 }
 
+// jsonb 컬럼 <-> 로컬 TEXT(JSON 문자열). Supabase는 이미 파싱된 값(객체)을
+// 돌려주고, 로컬은 문자열로 들고 있다.
+function jsonToText(value: unknown): string {
+  return typeof value === 'string' ? value : JSON.stringify(value ?? {});
+}
+
+function textToJson(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return {};
+  }
+}
+
+function fromAiAnalysisRemoteRow(row: RemoteRow) {
+  return {
+    id: row.id as string,
+    userId: row.user_id as string,
+    recordId: row.record_id as string,
+    kind: row.kind as string,
+    confidence: (row.confidence as string) ?? null,
+    photoQuality: (row.photo_quality as string) ?? null,
+    retakeNeeded: Boolean(row.retake_needed),
+    resultJson: jsonToText(row.result),
+    createdAt: toEpochMs(row.created_at) ?? Date.now(),
+    updatedAt: toEpochMs(row.updated_at) ?? Date.now(),
+    syncStatus: '동기화 완료' as SyncStatus,
+    lastSyncedAt: Date.now() as number | null,
+  };
+}
+
+export function toAiAnalysisRemotePayload(row: typeof aiAnalyses.$inferSelect) {
+  return {
+    id: row.id,
+    user_id: row.userId,
+    record_id: row.recordId,
+    kind: row.kind,
+    confidence: row.confidence,
+    photo_quality: row.photoQuality,
+    retake_needed: row.retakeNeeded,
+    result: textToJson(row.resultJson),
+    created_at: toIso(row.createdAt),
+    updated_at: toIso(row.updatedAt),
+  };
+}
+
 const ENTITY_ADAPTERS: Record<SyncableTableName, EntityAdapter> = {
   apiaries: makeAdapter(apiaries, fromApiaryRemoteRow, toApiaryRemotePayload as never),
   colonies: makeAdapter(colonies, fromColonyRemoteRow, toColonyRemotePayload as never),
@@ -423,6 +477,7 @@ const ENTITY_ADAPTERS: Record<SyncableTableName, EntityAdapter> = {
   records: makeAdapter(records, fromRecordRemoteRow, toRecordRemotePayload as never),
   record_field_values: makeAdapter(recordFieldValues, fromRecordFieldValueRemoteRow, toRecordFieldValueRemotePayload as never),
   record_transcripts: makeAdapter(recordTranscripts, fromRecordTranscriptRemoteRow, toRecordTranscriptRemotePayload as never),
+  ai_analyses: makeAdapter(aiAnalyses, fromAiAnalysisRemoteRow, toAiAnalysisRemotePayload as never),
 };
 
 // Maps a Supabase row (snake_case, timestamptz strings) to a Drizzle insert

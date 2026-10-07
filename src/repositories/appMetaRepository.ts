@@ -16,3 +16,8 @@ export async function setAppMetaValue(key: string, value: string): Promise<void>
     .values({ key, value })
     .onConflictDoUpdate({ target: appMeta.key, set: { value } });
 }
+
+export async function getAppMetaValue(key: string): Promise<string | null> {
+  const [row] = await db.select().from(appMeta).where(eq(appMeta.key, key)).limit(1);
+  return row?.value ?? null;
+}
