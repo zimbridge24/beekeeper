@@ -5,7 +5,7 @@ import { randomUUID } from 'expo-crypto';
 import { getCurrentUserId } from '../auth/currentUser';
 import { db } from '../db/client';
 import { apiaries, colonies, colonyHiveAssignments, hives } from '../db/schema';
-import { enqueueOutbox } from '../sync/outbox';
+import { DbOrTx, enqueueOutbox } from '../sync/outbox';
 import { toColonyHiveAssignmentRemotePayload, toColonyRemotePayload, toHiveRemotePayload } from '../sync/tables';
 
 export type ColonySpecies = 'western' | 'native';
@@ -75,76 +75,103 @@ export function useColony(id: string | undefined) {
 // 투명하게 같이 만들어준다. 나중에 봉군이 벌통을 옮기거나 벌통에 새 봉군이
 // 들어오는 흐름을 붙일 때, reassignColonyToHive로 이 배정만 바꾸면 되고
 // 스키마 변경은 필요 없다.
-export async function createColony(input: ColonyInput): Promise<string> {
+async function insertColonyWithHive(tx: DbOrTx, input: ColonyInput, userId: string, now: number): Promise<string> {
   const id = randomUUID();
   const hiveId = randomUUID();
   const assignmentId = randomUUID();
+
+  const [{ value: existingCount }] = await tx
+    .select({ value: count() })
+    .from(colonies)
+    .where(eq(colonies.apiaryId, input.apiaryId));
+  const internalCode = String(existingCount + 1);
+
+  await tx.insert(colonies).values({
+    id,
+    userId,
+    apiaryId: input.apiaryId,
+    internalCode,
+    alias: input.alias,
+    species: input.species,
+    isArchived: false,
+    createdAt: now,
+    updatedAt: now,
+    syncStatus: '기기 내 저장',
+  });
+  const [colonyRow] = await tx.select().from(colonies).where(eq(colonies.id, id)).limit(1);
+  await enqueueOutbox(tx, {
+    entityTable: 'colonies',
+    entityId: id,
+    op: 'insert',
+    payload: toColonyRemotePayload(colonyRow),
+  });
+
+  await tx.insert(hives).values({
+    id: hiveId,
+    userId,
+    apiaryId: input.apiaryId,
+    code: internalCode,
+    isArchived: false,
+    createdAt: now,
+    updatedAt: now,
+    syncStatus: '기기 내 저장',
+  });
+  const [hiveRow] = await tx.select().from(hives).where(eq(hives.id, hiveId)).limit(1);
+  await enqueueOutbox(tx, { entityTable: 'hives', entityId: hiveId, op: 'insert', payload: toHiveRemotePayload(hiveRow) });
+
+  await tx.insert(colonyHiveAssignments).values({
+    id: assignmentId,
+    userId,
+    colonyId: id,
+    hiveId,
+    startedAt: now,
+    createdAt: now,
+    updatedAt: now,
+    syncStatus: '기기 내 저장',
+  });
+  const [assignmentRow] = await tx
+    .select()
+    .from(colonyHiveAssignments)
+    .where(eq(colonyHiveAssignments.id, assignmentId))
+    .limit(1);
+  await enqueueOutbox(tx, {
+    entityTable: 'colony_hive_assignments',
+    entityId: assignmentId,
+    op: 'insert',
+    payload: toColonyHiveAssignmentRemotePayload(assignmentRow),
+  });
+
+  return id;
+}
+
+export async function createColony(input: ColonyInput): Promise<string> {
+  const now = Date.now();
+  const userId = getCurrentUserId();
+  return db.transaction((tx) => insertColonyWithHive(tx, input, userId, now));
+}
+
+// "1번~20번을 한 번에" — 처음 설정에서 통이 많은 양봉가가 폼을 수십 번 채우지 않도록, 이름만 다른
+// 봉군을 한 트랜잭션으로 만든다 (중간에 실패하면 하나도 안 생긴다). 같은 양봉장에 이미 있는
+// 이름은 건너뛰고, 실제로 만든 개수를 돌려준다.
+export async function createColonies(input: { apiaryId: string; aliases: string[]; species: ColonySpecies }): Promise<number> {
   const now = Date.now();
   const userId = getCurrentUserId();
 
   return db.transaction(async (tx) => {
-    const [{ value: existingCount }] = await tx
-      .select({ value: count() })
+    const existing = await tx
+      .select({ alias: colonies.alias })
       .from(colonies)
-      .where(eq(colonies.apiaryId, input.apiaryId));
-    const internalCode = String(existingCount + 1);
+      .where(and(eq(colonies.apiaryId, input.apiaryId), isNull(colonies.deletedAt)));
+    const taken = new Set(existing.map((c) => c.alias));
 
-    await tx.insert(colonies).values({
-      id,
-      userId,
-      apiaryId: input.apiaryId,
-      internalCode,
-      alias: input.alias,
-      species: input.species,
-      isArchived: false,
-      createdAt: now,
-      updatedAt: now,
-      syncStatus: '기기 내 저장',
-    });
-    const [colonyRow] = await tx.select().from(colonies).where(eq(colonies.id, id)).limit(1);
-    await enqueueOutbox(tx, {
-      entityTable: 'colonies',
-      entityId: id,
-      op: 'insert',
-      payload: toColonyRemotePayload(colonyRow),
-    });
-
-    await tx.insert(hives).values({
-      id: hiveId,
-      userId,
-      apiaryId: input.apiaryId,
-      code: internalCode,
-      isArchived: false,
-      createdAt: now,
-      updatedAt: now,
-      syncStatus: '기기 내 저장',
-    });
-    const [hiveRow] = await tx.select().from(hives).where(eq(hives.id, hiveId)).limit(1);
-    await enqueueOutbox(tx, { entityTable: 'hives', entityId: hiveId, op: 'insert', payload: toHiveRemotePayload(hiveRow) });
-
-    await tx.insert(colonyHiveAssignments).values({
-      id: assignmentId,
-      userId,
-      colonyId: id,
-      hiveId,
-      startedAt: now,
-      createdAt: now,
-      updatedAt: now,
-      syncStatus: '기기 내 저장',
-    });
-    const [assignmentRow] = await tx
-      .select()
-      .from(colonyHiveAssignments)
-      .where(eq(colonyHiveAssignments.id, assignmentId))
-      .limit(1);
-    await enqueueOutbox(tx, {
-      entityTable: 'colony_hive_assignments',
-      entityId: assignmentId,
-      op: 'insert',
-      payload: toColonyHiveAssignmentRemotePayload(assignmentRow),
-    });
-
-    return id;
+    let created = 0;
+    for (const alias of input.aliases) {
+      if (taken.has(alias)) continue;
+      taken.add(alias);
+      await insertColonyWithHive(tx, { apiaryId: input.apiaryId, alias, species: input.species }, userId, now);
+      created++;
+    }
+    return created;
   });
 }
 

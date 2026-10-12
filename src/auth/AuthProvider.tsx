@@ -2,6 +2,7 @@ import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { createContext, ReactNode, useContext, useEffect, useSyncExternalStore } from 'react';
 
 import { db, resetLocalDatabase } from '../db/client';
+import { discardPendingCaptureFiles } from '../features/voice/pendingCaptures';
 import { users } from '../db/schema';
 import { supabase } from '../supabase/client';
 import { getAuthenticatedSignal, setAuthenticatedSignal, subscribeAuthenticatedSignal } from './authSignal';
@@ -58,7 +59,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data: subscription } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
-        resetLocalDatabase()
+        discardPendingCaptureFiles()
+          .then(() => resetLocalDatabase())
           .then(() => {
             setCurrentUserId(null);
             setAuthenticatedSignal(false);

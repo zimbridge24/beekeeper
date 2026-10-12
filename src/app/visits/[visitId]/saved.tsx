@@ -6,6 +6,7 @@ import { Button } from '../../../components/Button';
 import { CheckIcon } from '../../../components/icons';
 import { ReferenceNote } from '../../../components/ReferenceNote';
 import { Screen } from '../../../components/Screen';
+import { usePendingVoiceCaptures } from '../../../features/voice/pendingCaptures';
 import { useColony } from '../../../repositories/colonyRepository';
 import { endVisit } from '../../../repositories/visitRepository';
 import { colors, fontFamilies, fontSizes, spacing } from '../../../theme/tokens';
@@ -29,6 +30,7 @@ export default function RecordSavedScreen() {
   }>();
   const { data: colonyRows } = useColony(colonyId || undefined);
   const colony = colonyRows?.[0];
+  const pendingVoice = usePendingVoiceCaptures();
   const [ending, setEnding] = useState(false);
 
   const handleEndVisit = async () => {
@@ -91,6 +93,13 @@ export default function RecordSavedScreen() {
           </>
         ) : (
           <>
+            {/* 대기 중인 녹음이 있으면 가장 먼저 — 새로 녹음하기 전에 쌓인 것부터 비우도록. */}
+            {pendingVoice.length > 0 && (
+              <Button
+                label={`저장 대기 중인 음성 ${pendingVoice.length}건 이어서 저장하기`}
+                onPress={() => router.replace('/visits/pending-voice')}
+              />
+            )}
             <Button
               label="다음도 음성으로 기록하기"
               onPress={() => router.replace({ pathname: '/visits/[visitId]/voice-record', params: { visitId } })}

@@ -81,6 +81,11 @@ export function ApiaryForm({ initial, submitLabel, onSubmit, saving }: Props) {
             </Text>
           </View>
         </Pressable>
+        {!location && (
+          <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.xs, color: colors.textMuted, lineHeight: 16, marginTop: spacing.xs }}>
+            위치 권한 창이 뜨면 &quot;앱 사용 중에만 허용&quot;을 눌러 주세요. 위치는 양봉장 주소를 채우고 내검 때 날씨를 남기는 데에만 써요.
+          </Text>
+        )}
       </View>
 
       <Button

@@ -11,6 +11,7 @@ import { ReferenceNote } from '../../../../components/ReferenceNote';
 import { RiskBadge } from '../../../../components/RiskBadge';
 import { Screen } from '../../../../components/Screen';
 import { ScreenHeader } from '../../../../components/ScreenHeader';
+import { ChecklistSummary } from '../../../../components/WinteringChecklistView';
 import { records } from '../../../../db/schema';
 import { computeInsights, insightsForColony } from '../../../../features/health/colonyInsights';
 import { buildWinteringFacts, extractColonySeries } from '../../../../features/health/facts';
@@ -50,21 +51,18 @@ function ColonyHealthSection({ colonyId, apiaryId }: { colonyId: string; apiaryI
       ))}
       <Card size="medium">
         <View style={{ gap: spacing.sm }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm }}>
+            <Text style={{ flex: 1, fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary }}>
               응애 · {lastMite ? `${daysBetween(lastMite.at, now)}일 전 검사` : '검사 기록 없음'}
             </Text>
             <RiskBadge level={lastMite?.riskLevel} />
           </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          {/* 한 줄에 라벨과 요약을 같이 두면 요약이 상자 밖으로 넘쳐서, 라벨 아래에 줄바꿈되는 요약을 둔다. */}
+          <View style={{ gap: spacing.xs }}>
             <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary }}>
               월동 점검 · {lastWinteringAt ? `${daysBetween(lastWinteringAt, now)}일 전 점검` : '점검 기록 없음'}
             </Text>
-            {checklist && (
-              <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: colors.textPrimary }}>
-                충족 {checklist.okCount} · 보완 {checklist.improveCount} · 정보 없음 {checklist.unknownCount}
-              </Text>
-            )}
+            {checklist && <ChecklistSummary checklist={checklist} showTitle={false} />}
           </View>
           <ReferenceNote kind="general" />
         </View>

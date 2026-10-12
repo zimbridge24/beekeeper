@@ -1,10 +1,11 @@
 import { router } from 'expo-router';
-import { Text, View } from 'react-native';
+import { Linking, Text, View } from 'react-native';
 
 import { Card } from '../../../components/Card';
 import { ForwardChevronIcon } from '../../../components/icons';
 import { Screen } from '../../../components/Screen';
 import { ScreenHeader } from '../../../components/ScreenHeader';
+import { PRIVACY_POLICY_URL } from '../../../config/legal';
 import { isExpoGo } from '../../../features/health/runtimeEnv';
 import { colors, fontFamilies, fontSizes, spacing } from '../../../theme/tokens';
 
@@ -35,6 +36,12 @@ export default function SettingsScreen() {
             </View>
           </Card>
         ))}
+        <Card size="medium" onPress={() => void Linking.openURL(PRIVACY_POLICY_URL)}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: colors.textPrimary }}>개인정보 처리방침</Text>
+            <ForwardChevronIcon />
+          </View>
+        </Card>
       </View>
     </Screen>
   );

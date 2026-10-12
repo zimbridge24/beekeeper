@@ -9,7 +9,7 @@ import { colors, fontFamilies, fontSizes, spacing } from '../../theme/tokens';
 const STEPS = [
   { title: '음성으로 빠르게 기록하세요', desc: '장갑을 낀 채로도 말만 하면\n관찰·문제·조치가 정리돼요' },
   { title: '봉군별로 이력이 쌓여요', desc: '모든 기록이 벌통과 연결되어\n변화와 패턴을 한눈에 볼 수 있어요' },
-  { title: '오프라인에서도 안전하게', desc: '네트워크가 없어도 기록은 저장되고\n연결되면 자동으로 동기화돼요' },
+  { title: '오프라인에서도 안전하게', desc: '네트워크가 없어도 기록과 음성 녹음은 기기에 남고\n연결되면 자동으로 정리·동기화돼요' },
 ];
 
 export default function OnboardingScreen() {

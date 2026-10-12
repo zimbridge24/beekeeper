@@ -22,7 +22,7 @@ function formatTime(ms: number | null): string {
 }
 
 export default function SyncStatusScreen() {
-  const { pendingCount, conflictCount, lastSyncedAt, failedItems } = useSyncSummary();
+  const { pendingCount, pendingItems, conflictCount, lastSyncedAt, failedItems } = useSyncSummary();
 
   // 같은 테이블·같은 사유는 한 줄로 묶어서 보여준다 (필드값 수십 건이 같은 이유로 실패하는 경우가 흔하다).
   const failureGroups = [...failedItems.reduce((map, item) => {
@@ -60,7 +60,7 @@ export default function SyncStatusScreen() {
               color: allSynced ? '#2C7A57' : '#3B6E90',
             }}
           >
-            {allSynced ? '모든 기록이 동기화되었어요' : `${pendingCount}건 동기화 대기 중`}
+            {allSynced ? '모든 기록이 동기화되었어요' : `${pendingItems}건을 서버에 올리는 중이에요`}
           </Text>
         </Card>
 
@@ -91,7 +91,7 @@ export default function SyncStatusScreen() {
           <Card size="large" tint="#FBEED9" onPress={() => router.push('/sync/conflicts')}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: '#8A5A0F' }}>
-                충돌 {conflictCount}건 해결 필요
+                다른 기기와 수정이 겹친 항목 {conflictCount}건 확인 필요
               </Text>
               <ForwardChevronIcon color="#8A5A0F" />
             </View>

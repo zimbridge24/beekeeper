@@ -1,11 +1,12 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { Image, Text, useWindowDimensions, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Image, Linking, Text, useWindowDimensions, View } from 'react-native';
 
 import { sendPhoneOtp, verifyPhoneOtp } from '../../auth/phoneAuth';
 import { Button } from '../../components/Button';
 import { Screen } from '../../components/Screen';
 import { TextField } from '../../components/TextField';
+import { PRIVACY_POLICY_URL } from '../../config/legal';
 import { colors, fontFamilies, fontSizes, radius, spacing } from '../../theme/tokens';
 
 type Mode = 'phone_enter' | 'phone_otp';
@@ -15,6 +16,9 @@ type Mode = 'phone_enter' | 'phone_otp';
 // `width:'100%' + aspectRatio`, which renders at the wrong scale in a flex
 // column — see SplashView.tsx for the same fix).
 const BANNER_ASPECT_RATIO = 1794 / 877;
+
+// Supabase는 같은 번호로 인증번호를 연달아 요청하는 걸 약 60초 간격으로 제한한다.
+const RESEND_COOLDOWN_SEC = 60;
 
 function ErrorText({ children }: { children: string }) {
   return <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.xs, color: '#C1443A' }}>{children}</Text>;
@@ -31,6 +35,13 @@ export default function LoginScreen() {
 
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [cooldown]);
 
   // Supabase's raw auth error messages are English and easy to miss inside
   // the small ErrorText — translate the ones users actually hit here.
@@ -60,6 +71,14 @@ export default function LoginScreen() {
   const handleSendOtp = () => withLoading(async () => {
     await sendPhoneOtp(phone);
     setMode('phone_otp');
+    setCooldown(RESEND_COOLDOWN_SEC);
+  });
+
+  // 문자가 안 왔을 때 번호를 다시 입력하지 않고 바로 다시 받는다.
+  const handleResendOtp = () => withLoading(async () => {
+    await sendPhoneOtp(phone);
+    setOtp('');
+    setCooldown(RESEND_COOLDOWN_SEC);
   });
 
   const handleVerifyOtp = () => withLoading(async () => {
@@ -130,6 +149,12 @@ export default function LoginScreen() {
             {error && <ErrorText>{error}</ErrorText>}
             <Button label="확인" onPress={handleVerifyOtp} loading={loading} disabled={otp.trim().length === 0} />
             <Button
+              label={cooldown > 0 ? `인증번호 다시 받기 (${cooldown}초)` : '인증번호 다시 받기'}
+              variant="surface"
+              onPress={handleResendOtp}
+              disabled={cooldown > 0 || loading}
+            />
+            <Button
               label="번호 다시 입력"
               variant="ghost"
               onPress={() => {
@@ -151,7 +176,14 @@ export default function LoginScreen() {
           marginTop: spacing.xxl,
         }}
       >
-        계속하면 이용약관 및 개인정보 처리방침에 동의합니다
+        계속하면{' '}
+        <Text
+          onPress={() => void Linking.openURL(PRIVACY_POLICY_URL)}
+          style={{ color: colors.primary, textDecorationLine: 'underline' }}
+        >
+          개인정보 처리방침
+        </Text>
+        에 동의하는 것으로 봐요
       </Text>
 
       <Image

@@ -9,6 +9,7 @@ import { Card } from '../../components/Card';
 import { HealthCheckSection } from '../../components/HealthCheckSection';
 import { HamburgerIcon } from '../../components/icons';
 import { Screen } from '../../components/Screen';
+import { usePendingVoiceCaptures } from '../../features/voice/pendingCaptures';
 import { useApiaries } from '../../repositories/apiaryRepository';
 import { useColonyCount, useRecentColoniesWithApiary } from '../../repositories/colonyRepository';
 import { ensureActiveVisit } from '../../repositories/visitRepository';
@@ -21,7 +22,9 @@ export default function HomeScreen() {
   const { data: apiaries } = useApiaries();
   const { data: recentColonies } = useRecentColoniesWithApiary(5);
   const { data: colonyCountRows } = useColonyCount();
-  const { pendingCount, conflictCount } = useSyncSummary();
+  const { pendingItems, conflictCount } = useSyncSummary();
+  const pendingVoice = usePendingVoiceCaptures();
+  const readyVoiceCount = pendingVoice.filter((c) => c.status === 'ready').length;
   const [startingVisit, setStartingVisit] = useState(false);
 
   useEffect(() => {
@@ -85,6 +88,24 @@ export default function HomeScreen() {
 
       <Button label="AI 음성으로 내검하기" onPress={handleStartVisit} loading={startingVisit} />
 
+      {pendingVoice.length > 0 && (
+        <Card size="medium" tint="#FBEED9" onPress={() => router.push('/visits/pending-voice')}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: '#8A5A0F' }}>
+                저장하지 않은 음성 녹음 {pendingVoice.length}건
+              </Text>
+              <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.sm, color: '#8A5A0F', marginTop: 2 }}>
+                {readyVoiceCount > 0
+                  ? `정리가 끝난 ${readyVoiceCount}건은 확인하고 저장만 하면 돼요`
+                  : '인터넷이 닿으면 자동으로 정리해 둬요'}
+              </Text>
+            </View>
+            <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: '#8A5A0F' }}>보기 ›</Text>
+          </View>
+        </Card>
+      )}
+
       <HealthCheckSection />
 
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
@@ -96,9 +117,9 @@ export default function HomeScreen() {
         </Card>
         <Pressable style={{ flex: 1 }} onPress={() => router.push('/sync/status')}>
           <Card size="large" tint="#FBEED9" style={{ flex: 1 }}>
-            <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.sm, color: '#8A5A0F' }}>동기화 대기</Text>
+            <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.sm, color: '#8A5A0F' }}>서버에 올리는 중</Text>
             <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.display3, color: '#8A5A0F', marginTop: 2 }}>
-              {pendingCount + conflictCount}개
+              {pendingItems + conflictCount}건
             </Text>
           </Card>
         </Pressable>

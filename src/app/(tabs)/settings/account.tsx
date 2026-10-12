@@ -8,8 +8,12 @@ import { Button } from '../../../components/Button';
 import { Card } from '../../../components/Card';
 import { Screen } from '../../../components/Screen';
 import { ScreenHeader } from '../../../components/ScreenHeader';
+import { runSync } from '../../../sync/runSync';
+import { describeUnsynced, getUnsyncedSummary, UnsyncedSummary } from '../../../sync/unsynced';
 import { supabase } from '../../../supabase/client';
 import { colors, fontFamilies, fontSizes } from '../../../theme/tokens';
+
+const SYNC_BEFORE_SIGNOUT_TIMEOUT_MS = 15_000;
 
 export default function AccountScreen() {
   const { signOut, deleteAccount } = useAuth();
@@ -24,29 +28,62 @@ export default function AccountScreen() {
     });
   }, []);
 
-  const handleSignOut = () => {
-    Alert.alert('로그아웃', '로그아웃하시겠어요? 기기에 저장된 데이터는 삭제되고, 다시 로그인하면 서버와 동기화됩니다.', [
-      { text: '취소', style: 'cancel' },
-      {
-        text: '로그아웃',
-        style: 'destructive',
-        onPress: async () => {
-          setSigningOut(true);
-          try {
-            await signOut();
-            // Stack.Protected re-guards on state change, but don't rely on
-            // that alone to fire promptly from deep inside nested (tabs)
-            // navigators — send the user back to "/" explicitly so
-            // index.tsx's own routing logic re-runs immediately.
-            router.replace('/');
-          } catch (err) {
-            Alert.alert('로그아웃 실패', err instanceof Error ? err.message : String(err));
-          } finally {
-            setSigningOut(false);
-          }
-        },
-      },
-    ]);
+  const performSignOut = async () => {
+    setSigningOut(true);
+    try {
+      await signOut();
+      // Stack.Protected re-guards on state change, but don't rely on
+      // that alone to fire promptly from deep inside nested (tabs)
+      // navigators — send the user back to "/" explicitly so
+      // index.tsx's own routing logic re-runs immediately.
+      router.replace('/');
+    } catch (err) {
+      Alert.alert('로그아웃 실패', err instanceof Error ? err.message : String(err));
+    } finally {
+      setSigningOut(false);
+    }
+  };
+
+  // 로그아웃은 이 기기의 로컬 DB를 통째로 비운다. 아직 서버에 못 올라간 기록이 있으면 그대로
+  // 사라지므로, 먼저 올려 보고 그래도 남으면 얼마나 잃는지 알려준 뒤 다시 확인받는다.
+  const handleSignOut = async () => {
+    setSigningOut(true);
+    let unsynced: UnsyncedSummary | null = null;
+    try {
+      unsynced = await getUnsyncedSummary();
+      if (unsynced.needsSync) {
+        // 신호가 약하면 요청이 오래 걸릴 수 있어서 기다리는 시간에 상한을 둔다.
+        await Promise.race([runSync().catch(() => undefined), new Promise((resolve) => setTimeout(resolve, SYNC_BEFORE_SIGNOUT_TIMEOUT_MS))]);
+        unsynced = await getUnsyncedSummary();
+      }
+    } catch (err) {
+      // 대기열을 못 읽어도 로그아웃 자체는 막지 않는다 — 기본 확인창으로 진행.
+      console.warn('[account] 로그아웃 전 대기열 확인 실패', err);
+      unsynced = null;
+    } finally {
+      setSigningOut(false);
+    }
+
+    if (!unsynced || !unsynced.hasAny) {
+      Alert.alert('로그아웃', '로그아웃하시겠어요? 기기에 저장된 데이터는 삭제되고, 다시 로그인하면 서버와 동기화됩니다.', [
+        { text: '취소', style: 'cancel' },
+        { text: '로그아웃', style: 'destructive', onPress: () => void performSignOut() },
+      ]);
+      return;
+    }
+
+    Alert.alert(
+      '아직 저장이 끝나지 않은 기록이 있어요',
+      `${describeUnsynced(unsynced)}이(가) 이 기기에만 있어요. 지금 로그아웃하면 사라지고 되돌릴 수 없어요.\n\n${
+        unsynced.voiceCaptures > 0
+          ? '음성 녹음은 홈에서 검토하고 저장한 뒤, 인터넷에 연결된 곳에서 잠시 기다렸다가 다시 시도하는 걸 권해요.'
+          : '인터넷에 연결된 곳에서 잠시 기다린 뒤 다시 시도하는 걸 권해요.'
+      }`,
+      [
+        { text: '취소', style: 'cancel' },
+        { text: '그래도 로그아웃', style: 'destructive', onPress: () => void performSignOut() },
+      ],
+    );
   };
 
   const confirmDeleteFinal = () => {

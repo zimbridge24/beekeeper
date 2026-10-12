@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Image, ScrollView, Text, View } from 'react-native';
+import { Alert, Image, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Card } from '../../../../components/Card';
 import { Chip } from '../../../../components/Chip';
@@ -21,7 +21,7 @@ import {
 } from '../../../../features/records/recordTypesConfig';
 import { useColony } from '../../../../repositories/colonyRepository';
 import { usePhotosForRecord } from '../../../../repositories/photoRepository';
-import { useRecordFieldValues, useRecordsForColony } from '../../../../repositories/recordRepository';
+import { deleteRecord, useRecordFieldValues, useRecordsForColony } from '../../../../repositories/recordRepository';
 import { useVisit } from '../../../../repositories/visitRepository';
 import { colors, fontFamilies, fontSizes, radius, spacing, statusColors } from '../../../../theme/tokens';
 import { weatherCodeLabel } from '../../../../weather/weatherCodeLabel';
@@ -65,12 +65,29 @@ function TimelineEntry({ record }: { record: typeof records.$inferSelect }) {
     .filter(Boolean)
     .join(' · ');
 
+  const confirmDelete = () => {
+    Alert.alert('이 기록을 삭제할까요?', '삭제하면 되돌릴 수 없어요. 응애 추이와 점검 알림에서도 빠져요.', [
+      { text: '취소', style: 'cancel' },
+      { text: '삭제', style: 'destructive', onPress: () => void deleteRecord(record.id) },
+    ]);
+  };
+
   return (
     <Card size="large">
       <View style={{ gap: 6 }}>
-        <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.sm, color: colors.textMuted }}>
-          {new Date(record.occurredAt).toLocaleString('ko-KR')}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.sm, color: colors.textMuted }}>
+            {new Date(record.occurredAt).toLocaleString('ko-KR')}
+          </Text>
+          <View style={{ flexDirection: 'row', gap: spacing.lg }}>
+            <Pressable onPress={() => router.push({ pathname: '/records/[recordId]/edit', params: { recordId: record.id } })} hitSlop={10}>
+              <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.sm, color: colors.primary }}>수정</Text>
+            </Pressable>
+            <Pressable onPress={confirmDelete} hitSlop={10}>
+              <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.sm, color: statusColors.danger.text }}>삭제</Text>
+            </Pressable>
+          </View>
+        </View>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
           {weatherBadgeText.length > 0 && (
             <View

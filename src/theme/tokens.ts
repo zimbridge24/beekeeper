@@ -9,7 +9,8 @@ export const colors = {
   surfaceTint: '#DCEEE4',
   textPrimary: '#16211B',
   textSecondary: '#56604F',
-  textMuted: '#8B9585',
+  // 연한 배경 위 대비를 4.5:1 이상으로 맞춘 값 (예전 #8B9585는 약 2.8:1이라 야외에서 읽기 어려웠다).
+  textMuted: '#667060',
   border: '#E1E8E1',
 } as const;
 

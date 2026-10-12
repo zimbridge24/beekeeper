@@ -9,11 +9,16 @@ import {
   useAudioRecorder,
 } from 'expo-audio';
 
-import { inspectionAIProvider, speechToTextProvider } from '../../../ai';
 import { BackChevronIcon, CheckIcon, MicIcon } from '../../../components/icons';
 import { Button } from '../../../components/Button';
 import { Screen } from '../../../components/Screen';
-import { useColonies, useColony } from '../../../repositories/colonyRepository';
+import {
+  addPendingCapture,
+  listPendingCaptures,
+  processPendingCapture,
+  reviewParamsFor,
+} from '../../../features/voice/pendingCaptures';
+import { useColony } from '../../../repositories/colonyRepository';
 import { useVisit } from '../../../repositories/visitRepository';
 import { colors, fontFamilies, fontSizes, radius, shadows, spacing } from '../../../theme/tokens';
 
@@ -40,24 +45,63 @@ export default function VoiceRecordScreen() {
   // colonyId가 있으면 봉군 상세 화면에서 들어온 것 — 그 봉군으로 고정하고 AI
   // 봉군 매칭은 건너뛴다. 없으면(홈 "오늘 내검 시작하기") 말한 내용에서 AI가
   // 봉군을 알아서 찾는다.
-  const { visitId, colonyId: lockedColonyId } = useLocalSearchParams<{ visitId: string; colonyId?: string }>();
+  // resumeCaptureId가 있으면 "나중에 처리"로 남겨 둔 녹음을 다시 정리하러 온 것 — 녹음 단계를 건너뛰고
+  // 바로 변환·분석을 이어간다.
+  const {
+    visitId,
+    colonyId: lockedColonyId,
+    resumeCaptureId,
+  } = useLocalSearchParams<{ visitId: string; colonyId?: string; resumeCaptureId?: string }>();
   const { data: visitRows } = useVisit(visitId);
   const visit = visitRows?.[0];
   const { data: lockedColonyRows } = useColony(lockedColonyId || undefined);
   const lockedColony = lockedColonyRows?.[0];
-  const { data: apiaryColonies } = useColonies(visit?.apiaryId);
 
   const recorder = useAudioRecorder({ ...RecordingPresets.HIGH_QUALITY, directory: 'document' });
 
-  const [stage, setStage] = useState<Stage>('idle');
+  // 이어서 처리하러 온 경우(resumeCaptureId)에는 녹음 단계 없이 곧바로 "정리 중"으로 시작한다.
+  const [stage, setStage] = useState<Stage>(resumeCaptureId ? 'transcribing' : 'idle');
   const [elapsedSec, setElapsedSec] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
+  // 녹음이 끝나면 곧바로 기기 대기열에 올라간다 — 정리가 실패해도 이 id로 같은 녹음을 다시 돌린다.
+  const [captureId, setCaptureId] = useState<string | null>(resumeCaptureId || null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 정리 도중 사용자가 화면을 나가도 처리는 계속되는데, 끝난 뒤 엉뚱한 화면을 덮어쓰지 않게 한다.
+  const mountedRef = useRef(true);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       if (timerRef.current) clearInterval(timerRef.current);
     };
+  }, []);
+
+  const runCapture = async (id: string) => {
+    try {
+      const result = await processPendingCapture(id, (next) => {
+        if (mountedRef.current) setStage(next);
+      });
+      const capture = (await listPendingCaptures()).find((c) => c.id === id);
+      if (!capture) throw new Error('저장된 녹음을 찾을 수 없어요.');
+      if (!mountedRef.current) return;
+      router.replace({ pathname: '/visits/[visitId]/voice-review', params: reviewParamsFor(capture, result) });
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setErrorMessage(err instanceof Error ? err.message : String(err));
+      setStage('error');
+    }
+  };
+
+  const processCapture = (id: string) => {
+    setErrorMessage('');
+    setStage('transcribing');
+    return runCapture(id);
+  };
+
+  useEffect(() => {
+    if (resumeCaptureId) void runCapture(resumeCaptureId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const startRecording = async () => {
@@ -83,55 +127,60 @@ export default function VoiceRecordScreen() {
     try {
       await recorder.stop();
       const uri = recorder.uri;
-      if (!uri) throw new Error('녹음 파일을 찾을 수 없습니다.');
+      if (!uri) throw new Error('녹음 파일을 찾을 수 없어요.');
 
+      // 변환·분석보다 먼저 기기 대기열에 올린다. 이 시점부터는 인터넷이 끊기거나 앱이 꺼져도 녹음이 남는다.
       setStage('transcribing');
-      const { transcript } = await speechToTextProvider.transcribe({ uri, durationSec });
-
-      setStage('structuring');
-      const structured = await inspectionAIProvider.structureInspection(
-        transcript,
-        lockedColonyId
-          ? undefined
-          : { colonies: (apiaryColonies ?? []).map((c) => ({ id: c.id, label: `${c.internalCode}번 ${c.alias}` })) },
-      );
-
-      router.replace({
-        pathname: '/visits/[visitId]/voice-review',
-        params: {
-          visitId,
-          colonyId: lockedColonyId || structured.colonyId || '',
-          // AI가 실제로 추측한 값 그대로 — 잠금 모드에서는 애초에 봉군 매칭을
-          // 안 시켰으니 항상 빈 값. colonyId(위)는 화면에 처음 보여줄 선택값일
-          // 뿐이고, 이건 "AI가 정말 뭐라고 했는지" 원본 기록용으로 따로 둔다.
-          aiDraftColonyId: structured.colonyId ?? '',
-          colonyLocked: lockedColonyId ? '1' : '0',
-          drafts: JSON.stringify(structured.drafts),
-          notes: structured.notes ?? '',
-          transcript,
-          confidenceScore: String(structured.confidenceScore),
-          audioLocalUri: uri,
-          audioDurationSec: String(durationSec),
-        },
+      const capture = await addPendingCapture({
+        visitId,
+        apiaryId: visit?.apiaryId ?? '',
+        lockedColonyId: lockedColonyId || null,
+        audioUri: uri,
+        durationSec,
       });
+      setCaptureId(capture.id);
+      await processCapture(capture.id);
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err));
       setStage('error');
     }
   };
 
+  // 정리에 실패했지만 녹음은 대기열에 있다 — 같은 녹음을 다시 돌린다. 대기열에 못 올린 경우(captureId 없음)만
+  // 처음부터 다시 녹음한다.
   const retry = () => {
+    if (captureId) {
+      void processCapture(captureId);
+      return;
+    }
     setErrorMessage('');
     setStage('idle');
   };
 
+  const leave = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)/home');
+  };
+
+  const handleBack = () => {
+    if (stage === 'recording') {
+      Alert.alert('녹음을 그만할까요?', '지금 나가면 이번 녹음은 저장되지 않아요.', [
+        { text: '계속 녹음', style: 'cancel' },
+        { text: '나가기', style: 'destructive', onPress: leave },
+      ]);
+      return;
+    }
+    leave();
+  };
+
   const busy = stage === 'transcribing' || stage === 'structuring';
+  const offlineError = errorMessage.startsWith('인터넷에 연결');
   const headerTitle = lockedColony ? lockedColony.alias : '음성으로 내검하기';
 
   return (
     <Screen scroll={false} padded={false}>
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.xl, paddingTop: spacing.md }}>
-        <Pressable onPress={() => router.back()} hitSlop={12} disabled={busy} style={{ width: 40 }}>
+        <Pressable onPress={handleBack} hitSlop={12} style={{ width: 40 }}>
           <BackChevronIcon />
         </Pressable>
         <View style={{ flex: 1, alignItems: 'center' }}>
@@ -211,11 +260,25 @@ export default function VoiceRecordScreen() {
               shadows.cardLarge,
             ]}
           >
+            <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.lg, color: colors.textPrimary, textAlign: 'center' }}>
+              {captureId && offlineError ? '지금은 정리할 수 없어요' : captureId ? '정리하지 못했어요' : '녹음을 저장하지 못했어요'}
+            </Text>
             <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: '#C1443A', textAlign: 'center' }}>
-              분석에 실패했어요{'\n'}
               {errorMessage}
             </Text>
-            <Button label="다시 시도" onPress={retry} />
+            {captureId ? (
+              <>
+                <Text
+                  style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary, textAlign: 'center', lineHeight: 20 }}
+                >
+                  말씀하신 녹음은 이 기기에 안전하게 저장돼 있어요. 연결이 되면 알아서 정리해 두고, 홈에서 확인하고 저장할 수 있어요.
+                </Text>
+                <Button label="지금 다시 정리하기" onPress={retry} />
+                <Button label="나중에 처리하기" variant="surface" onPress={leave} />
+              </>
+            ) : (
+              <Button label="다시 녹음하기" onPress={retry} />
+            )}
           </View>
         ) : (
           <View
@@ -269,7 +332,9 @@ export default function VoiceRecordScreen() {
               {STAGE_TITLE[stage]}
             </Text>
             <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textMuted, textAlign: 'center' }}>
-              인터넷이 없어도 음성은 안전하게 저장돼요
+              {busy
+                ? '화면을 나가도 정리는 계속돼요. 끝나면 홈에서 확인할 수 있어요'
+                : '인터넷이 없어도 녹음은 이 기기에 안전하게 저장돼요'}
             </Text>
           </View>
         )}

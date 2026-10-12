@@ -12,6 +12,8 @@ import { Screen } from '../../../components/Screen';
 import { ScreenHeader } from '../../../components/ScreenHeader';
 import { TextField } from '../../../components/TextField';
 import { RecordType } from '../../../db/schema';
+import { summarizeInputState } from '../../../features/records/fieldState';
+import { removePendingCapture } from '../../../features/voice/pendingCaptures';
 import {
   DETAIL_RECORD_TYPES,
   EMPTY_INPUT_STATE,
@@ -47,6 +49,8 @@ export default function VoiceReviewScreen() {
     confidenceScore: string;
     audioLocalUri?: string;
     audioDurationSec?: string;
+    // 대기열(나중에 처리)에서 이어 온 녹음이면 그 id — 저장에 성공하면 대기열에서 뺀다.
+    pendingCaptureId?: string;
   }>();
   const { visitId, transcript } = params;
   const isLocked = params.colonyLocked === '1';
@@ -84,6 +88,15 @@ export default function VoiceReviewScreen() {
   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
   const [saving, setSaving] = useState(false);
 
+  // 확신도가 충분하고, 어느 봉군인지 알고, 필수 항목이 다 찬 결과는 "이렇게 기록할게요" 요약만 먼저
+  // 보여주고 한 번에 저장할 수 있게 한다. 요약에는 저장될 값이 전부 보이고, "수정하기"로 언제든 전체
+  // 폼을 연다. 확신도가 낮거나 봉군을 못 찾았거나 필수 항목이 비면 처음부터 전체 폼으로 시작한다.
+  const [simple, setSimple] = useState(() => {
+    if (needsReview || aiDrafts.length === 0) return false;
+    if (!params.colonyId && !isLocked) return false;
+    return aiDrafts.every((d) => getMissingRequiredFields(getFieldsForRecordType(d.recordType), stateFromDraft(d)).length === 0);
+  });
+
   const openTypes = DETAIL_RECORD_TYPES.filter((t) => sections[t.recordType]);
   const closedTypes = DETAIL_RECORD_TYPES.filter((t) => !sections[t.recordType]);
   const general = sections.general_observation ?? EMPTY_INPUT_STATE;
@@ -111,6 +124,7 @@ export default function VoiceReviewScreen() {
     for (const section of built) {
       const missing = getMissingRequiredFields(getFieldsForRecordType(section.recordType), section.state);
       if (missing.length > 0) {
+        setSimple(false);
         Alert.alert(`${RECORD_TYPE_LABELS[section.recordType]}: ${missing.map((f) => f.label).join(', ')}을(를) 골라주세요`, missing.map((f) => f.hint).filter(Boolean).join('\n') || undefined);
         return;
       }
@@ -132,6 +146,8 @@ export default function VoiceReviewScreen() {
         aiDraftNotes,
       });
       await upsertVisitColonyStatus(visitId, selectedColonyId, 'done');
+      // 기록으로 저장됐으니 대기열에서 뺀다. 원본 음성 파일은 기록에 연결돼 있으므로 지우지 않는다.
+      if (params.pendingCaptureId) await removePendingCapture(params.pendingCaptureId);
       router.replace({
         pathname: '/visits/[visitId]/saved',
         params: {
@@ -140,10 +156,34 @@ export default function VoiceReviewScreen() {
           recordTypeTitle: built.map((s) => RECORD_TYPE_LABELS[s.recordType]).join('·'),
         },
       });
+    } catch (err) {
+      // 저장이 실패해도 녹음과 이 화면의 내용은 그대로다 — 조용히 멈춰 있으면 사용자가 저장됐다고 착각한다.
+      Alert.alert(
+        '저장하지 못했어요',
+        `${err instanceof Error ? err.message : String(err)}
+
+내용은 그대로 남아 있어요. 잠시 뒤 다시 눌러 주세요.`,
+      );
     } finally {
       setSaving(false);
     }
   };
+
+  // 요약 모드에서 보여줄 "저장될 내용" — 저장 때와 같은 규칙(summarizeInputState)으로 만든다.
+  const summaryBlocks = (['general_observation', ...DETAIL_RECORD_TYPES.map((t) => t.recordType)] as RecordType[])
+    .map((recordType) => {
+      const state = sections[recordType];
+      if (!state) return null;
+      const lines = summarizeInputState(getFieldsForRecordType(recordType), state);
+      if (lines.length === 0) return null;
+      const config = DETAIL_RECORD_TYPES.find((t) => t.recordType === recordType);
+      return {
+        recordType,
+        title: config ? `${config.emoji} ${config.title}` : `${GENERAL_RECORD_TITLE} · 기본 상태`,
+        lines,
+      };
+    })
+    .filter((block): block is NonNullable<typeof block> => block !== null);
 
   return (
     <Screen scroll={false} padded={false}>
@@ -201,6 +241,36 @@ export default function VoiceReviewScreen() {
             </Text>
           </Card>
 
+          {simple ? (
+            <>
+              <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodyLg, color: colors.textPrimary }}>
+                이렇게 기록할게요
+              </Text>
+              <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.sm, color: colors.textMuted, marginTop: -spacing.md }}>
+                위 원문과 맞는지 확인하세요. 말씀하지 않은 항목은 비워 둬요.
+              </Text>
+              {summaryBlocks.map((block) => (
+                <Card key={block.recordType} size="large">
+                  <View style={{ gap: spacing.sm }}>
+                    <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodyLg, color: colors.textPrimary }}>{block.title}</Text>
+                    {block.lines.map((line) => (
+                      <Text key={line.key} style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textPrimary }}>
+                        {line.label}: <Text style={{ color: colors.textSecondary }}>{line.value}</Text>
+                      </Text>
+                    ))}
+                  </View>
+                </Card>
+              ))}
+              {notes.trim().length > 0 && (
+                <Card size="medium">
+                  <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary, lineHeight: 20 }}>
+                    메모: {notes.trim()}
+                  </Text>
+                </Card>
+              )}
+            </>
+          ) : (
+            <>
           <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodyLg, color: colors.textPrimary }}>
             AI가 구조화한 내용 (확인 후 수정 가능)
           </Text>
@@ -257,12 +327,15 @@ export default function VoiceReviewScreen() {
           />
 
           <PhotoPicker photos={photos} onChange={setPhotos} />
+            </>
+          )}
         </View>
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      <View style={{ padding: spacing.xl }}>
-        <Button label="검토 완료 · 저장" onPress={handleSave} loading={saving} disabled={!selectedColonyId} />
+      <View style={{ padding: spacing.xl, gap: spacing.sm }}>
+        <Button label={simple ? '이대로 저장' : '검토 완료 · 저장'} onPress={handleSave} loading={saving} disabled={!selectedColonyId} />
+        {simple && <Button label="수정하기" variant="surface" onPress={() => setSimple(false)} disabled={saving} />}
       </View>
     </Screen>
   );

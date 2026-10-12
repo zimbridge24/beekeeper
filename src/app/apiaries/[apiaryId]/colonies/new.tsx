@@ -1,10 +1,10 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 
-import { ColonyForm, ColonyFormValues } from '../../../../components/ColonyForm';
+import { ColonyBatchValues, ColonyForm, ColonyFormValues } from '../../../../components/ColonyForm';
 import { Screen } from '../../../../components/Screen';
 import { ScreenHeader } from '../../../../components/ScreenHeader';
-import { createColony } from '../../../../repositories/colonyRepository';
+import { createColonies, createColony } from '../../../../repositories/colonyRepository';
 
 export default function NewColonyScreen() {
   const { apiaryId } = useLocalSearchParams<{ apiaryId: string }>();
@@ -21,10 +21,21 @@ export default function NewColonyScreen() {
     }
   };
 
+  const handleBatchSubmit = async (values: ColonyBatchValues) => {
+    if (!apiaryId) return;
+    setSaving(true);
+    try {
+      await createColonies({ apiaryId, ...values });
+      router.back();
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <Screen padded>
       <ScreenHeader title="봉군 추가" onBack={() => router.back()} />
-      <ColonyForm submitLabel="추가" onSubmit={handleSubmit} saving={saving} />
+      <ColonyForm submitLabel="추가" onSubmit={handleSubmit} onSubmitBatch={handleBatchSubmit} saving={saving} />
     </Screen>
   );
 }

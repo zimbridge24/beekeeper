@@ -1,7 +1,11 @@
+import { count, isNull } from 'drizzle-orm';
+import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import * as Notifications from 'expo-notifications';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, AppState } from 'react-native';
 
+import { db } from '../db/client';
+import { records } from '../db/schema';
 import { useNotificationSettings } from '../features/health/notificationSettings';
 import {
   cancelLegacyLocalReminders,
@@ -11,7 +15,6 @@ import {
   requestNotificationPermission,
   targetFromResponse,
 } from '../features/health/pushNotifications';
-import { useColonyCount } from '../repositories/colonyRepository';
 
 // 로그인한 동안 화면 뒤에서 도는 푸시 알림 관리자 (보이는 UI는 없다). 알림을 "보낼지"는 서버가 판단하고,
 // 앱은 아래 일만 한다.
@@ -21,8 +24,10 @@ import { useColonyCount } from '../repositories/colonyRepository';
 //   4) 이전 버전이 예약해 둔 로컬 알림이 서버 알림과 겹치지 않게 한 번 지운다.
 export function PushNotificationManager() {
   const { settings, loaded, refresh, update } = useNotificationSettings();
-  const { data: colonyCountRows } = useColonyCount();
-  const colonyCount = colonyCountRows?.[0]?.value ?? 0;
+  // 알림 동의는 "기록을 하나라도 남긴 뒤"에 묻는다 — 봉군만 만들고 바로 뜨는 팝업은 왜 필요한지
+  // 모르는 상태에서 나와서 거절되기 쉽다.
+  const { data: recordCountRows } = useLiveQuery(db.select({ value: count() }).from(records).where(isNull(records.deletedAt)));
+  const recordCount = recordCountRows?.[0]?.value ?? 0;
 
   // 서버 설정을 실제로 받아온 뒤에만 동의를 묻는다 — 오프라인이거나 서버를 못 읽은 상태에서 묻고 저장하면
   // 서버에 이미 있는 선택을 덮어쓸 수 있다.
@@ -72,7 +77,7 @@ export function PushNotificationManager() {
   // 첫 동의 — 봉군이 하나라도 있고, 서버에서 "아직 한 번도 안 물어봄"을 확인했을 때 한 번만.
   const asked = useRef(false);
   useEffect(() => {
-    if (asked.current || !synced || consent !== null || colonyCount === 0) return;
+    if (asked.current || !synced || consent !== null || recordCount === 0) return;
     asked.current = true;
     Alert.alert(
       '알림을 받을까요?',
@@ -95,7 +100,7 @@ export function PushNotificationManager() {
       ],
       { cancelable: false },
     );
-  }, [synced, consent, colonyCount, settings, update]);
+  }, [synced, consent, recordCount, settings, update]);
 
   // 알림 탭 → 행동 화면. 앱이 꺼져 있다가 알림으로 열린 경우(lastResponse)와 켜져 있을 때 모두.
   const handled = useRef<string | null>(null);

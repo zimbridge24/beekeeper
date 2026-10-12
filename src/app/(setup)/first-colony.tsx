@@ -2,10 +2,10 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
-import { ColonyForm, ColonyFormValues } from '../../components/ColonyForm';
+import { ColonyBatchValues, ColonyForm, ColonyFormValues } from '../../components/ColonyForm';
 import { Screen } from '../../components/Screen';
 import { BackChevronIcon } from '../../components/icons';
-import { createColony } from '../../repositories/colonyRepository';
+import { createColonies, createColony } from '../../repositories/colonyRepository';
 import { colors, fontFamilies, fontSizes, spacing } from '../../theme/tokens';
 
 export default function FirstColonyScreen() {
@@ -17,6 +17,17 @@ export default function FirstColonyScreen() {
     setSaving(true);
     try {
       await createColony({ apiaryId, ...values });
+      router.replace('/(tabs)/home');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleBatchSubmit = async (values: ColonyBatchValues) => {
+    if (!apiaryId) return;
+    setSaving(true);
+    try {
+      await createColonies({ apiaryId, ...values });
       router.replace('/(tabs)/home');
     } finally {
       setSaving(false);
@@ -43,7 +54,7 @@ export default function FirstColonyScreen() {
         </Text>
       </View>
 
-      <ColonyForm submitLabel="등록 완료" onSubmit={handleSubmit} saving={saving} />
+      <ColonyForm submitLabel="등록 완료" onSubmit={handleSubmit} onSubmitBatch={handleBatchSubmit} saving={saving} />
     </Screen>
   );
 }

@@ -36,7 +36,7 @@ export default function ConflictDetailScreen() {
   if (!conflict) {
     return (
       <Screen scroll={false} padded={false}>
-        <ScreenHeader title="충돌 해결" onBack={() => router.back()} />
+        <ScreenHeader title="겹친 수정 확인" onBack={() => router.back()} />
       </Screen>
     );
   }
@@ -57,10 +57,10 @@ export default function ConflictDetailScreen() {
 
   return (
     <Screen scroll={false} padded={false}>
-      <ScreenHeader title="충돌 해결" onBack={() => router.back()} />
+      <ScreenHeader title="겹친 수정 확인" onBack={() => router.back()} />
       <View style={{ flex: 1, paddingHorizontal: spacing.xl, paddingTop: spacing.lg, gap: spacing.md }}>
         <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary }}>
-          이 기기와 서버에서 서로 다른 값으로 수정되었어요. 어느 쪽을 유지할지 선택해주세요.
+          이 기기와 다른 기기에서 같은 항목을 서로 다르게 고쳤어요. 어느 쪽 값을 쓸지 골라 주세요.
         </Text>
 
         {diffKeys.map((key) => (
@@ -73,7 +73,7 @@ export default function ConflictDetailScreen() {
                 내 기기: {formatValue(key, local[key])}
               </Text>
               <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.body, color: colors.textSecondary }}>
-                서버: {formatValue(key, remote[key])}
+                다른 기기: {formatValue(key, remote[key])}
               </Text>
             </View>
           </Card>
@@ -82,7 +82,7 @@ export default function ConflictDetailScreen() {
 
       <View style={{ padding: spacing.xl, gap: spacing.sm }}>
         <Button label="내 기기 값 사용" onPress={() => handleResolve('kept_local')} loading={resolving} />
-        <Button label="서버 값 사용" variant="surface" onPress={() => handleResolve('kept_remote')} loading={resolving} />
+        <Button label="다른 기기 값 사용" variant="surface" onPress={() => handleResolve('kept_remote')} loading={resolving} />
       </View>
     </Screen>
   );

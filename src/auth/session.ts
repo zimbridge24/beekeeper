@@ -3,6 +3,7 @@ import type { User } from '@supabase/supabase-js';
 import { setAuthenticatedSignal } from './authSignal';
 import { setCurrentUserId } from './currentUser';
 import { db, resetLocalDatabase } from '../db/client';
+import { discardPendingCaptureFiles } from '../features/voice/pendingCaptures';
 import { isExpoGo } from '../features/health/runtimeEnv';
 import { users } from '../db/schema';
 import { supabase } from '../supabase/client';
@@ -54,6 +55,7 @@ export async function signOut() {
   } catch (err) {
     console.warn('[auth] supabase.auth.signOut() failed, clearing local session anyway', err);
   }
+  await discardPendingCaptureFiles();
   await resetLocalDatabase();
   setCurrentUserId(null);
   setAuthenticatedSignal(false);
@@ -73,6 +75,7 @@ export async function deleteAccount(): Promise<void> {
   } catch (err) {
     console.warn('[auth] post-delete supabase.auth.signOut() failed, clearing local session anyway', err);
   }
+  await discardPendingCaptureFiles();
   await resetLocalDatabase();
   setCurrentUserId(null);
   setAuthenticatedSignal(false);

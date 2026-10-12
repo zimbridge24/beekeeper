@@ -17,12 +17,12 @@ export default function ConflictsListScreen() {
 
   return (
     <Screen scroll={false} padded={false}>
-      <ScreenHeader title="충돌 해결" onBack={() => router.back()} />
+      <ScreenHeader title="겹친 수정 확인" onBack={() => router.back()} />
       <View style={{ flex: 1, paddingHorizontal: spacing.xl, paddingTop: spacing.lg, gap: spacing.md }}>
         {conflicts?.length === 0 && (
           <Card size="large">
             <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary }}>
-              해결할 충돌이 없어요.
+              확인할 항목이 없어요.
             </Text>
           </Card>
         )}
@@ -35,7 +35,7 @@ export default function ConflictsListScreen() {
                 {label} · {local.name ?? local.alias ?? conflict.entityId}
               </Text>
               <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary, marginTop: 4 }}>
-                내 기기와 서버의 값이 서로 달라요
+                이 기기와 다른 기기에서 서로 다르게 고쳤어요
               </Text>
             </Card>
           );

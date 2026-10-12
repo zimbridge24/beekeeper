@@ -55,6 +55,17 @@ type InsertRecordCoreParams = {
   now: number;
 };
 
+// 폼 입력 하나가 저장될 때의 열 값. 새로 저장(insertRecordCore)과 수정(updateRecord)이 같은 규칙을 쓴다.
+function storedValueFor(field: RecordTypeField, final: FieldInputState) {
+  const isNumber = field.kind === 'number';
+  const isText = field.kind === 'text';
+  return {
+    valueNumber: isNumber ? (final.numbers[field.key] ?? null) : null,
+    valueText: isText ? (final.texts[field.key] ?? null) : null,
+    valueState: isNumber || isText ? (hasFieldValue(field, final) ? 'present' : 'unset') : (final.values[field.key] ?? 'unset'),
+  };
+}
+
 // Inserts the `records` row plus one `record_field_values` row per config field —
 // always, even for fields the user never touched (an explicit 'unset' row, so "no
 // row" can't be confused with an explicit 확인하지 않음 answer) — plus photos and
@@ -96,9 +107,7 @@ async function insertRecordCore(tx: DbOrTx, params: InsertRecordCoreParams): Pro
     const isNumber = field.kind === 'number';
     const isText = field.kind === 'text';
 
-    const numberValue = isNumber ? (final.numbers[field.key] ?? null) : null;
-    const textValue = isText ? (final.texts[field.key] ?? null) : null;
-    const valueState = isNumber || isText ? (hasFieldValue(field, final) ? 'present' : 'unset') : (final.values[field.key] ?? 'unset');
+    const { valueNumber: numberValue, valueText: textValue, valueState } = storedValueFor(field, final);
 
     const aiNumber = isNumber ? (aiDraft?.numbers[field.key] ?? null) : null;
     const aiText = isText ? (aiDraft?.texts[field.key] ?? null) : null;
@@ -288,6 +297,82 @@ export async function createVoiceCapture(input: CreateVoiceCaptureInput): Promis
   });
 
   return recordIds;
+}
+
+// 기록 삭제 — 다른 곳과 같은 소프트 삭제(deletedAt)다. 타임라인·분석·검색·서버 알림이 전부 deletedAt이
+// 있는 기록을 빼고 읽으므로 응애 추이나 알림에도 더 이상 반영되지 않고, 다른 기기에도 삭제가 전달된다.
+export async function deleteRecord(recordId: string): Promise<void> {
+  const now = Date.now();
+  await db.transaction(async (tx) => {
+    await tx.update(records).set({ deletedAt: now, updatedAt: now, syncStatus: '기기 내 저장' }).where(eq(records.id, recordId));
+    const [row] = await tx.select().from(records).where(eq(records.id, recordId)).limit(1);
+    await enqueueOutbox(tx, { entityTable: 'records', entityId: recordId, op: 'update', payload: toRecordRemotePayload(row) });
+  });
+}
+
+export type UpdateRecordInput = {
+  recordId: string;
+  state: FieldInputState;
+  notes: string | null;
+};
+
+// 저장된 기록의 값과 메모를 고친다. 바뀐 필드 행만 갱신해서 동기화 대기열에 올리고, 처음 저장 때
+// 남긴 AI 초안(ai_draft_*)과 입력 방법·시각은 그대로 둔다 — "AI가 뭐라고 했고 사용자가 뭐로
+// 고쳤는지"가 계속 남는다. 기록 이후에 카탈로그에 새로 생긴 필드는 행이 없을 수 있어서 그때만 새로 넣는다.
+export async function updateRecord(input: UpdateRecordInput): Promise<void> {
+  const now = Date.now();
+  const userId = getCurrentUserId();
+
+  await db.transaction(async (tx) => {
+    const [record] = await tx.select().from(records).where(eq(records.id, input.recordId)).limit(1);
+    if (!record) throw new Error('기록을 찾을 수 없어요.');
+
+    const fields = getFieldsForRecordType(record.recordType as RecordType);
+    const final = pruneHiddenValues(fields, input.state);
+    const existing = await tx.select().from(recordFieldValues).where(eq(recordFieldValues.recordId, input.recordId));
+    const byKey = new Map(existing.map((row) => [row.fieldKey, row]));
+
+    for (const field of fields) {
+      const next = storedValueFor(field, final);
+      const current = byKey.get(field.key);
+
+      if (!current) {
+        // 아무것도 입력하지 않은 새 필드는 굳이 행을 만들지 않는다.
+        if (next.valueState === 'unset') continue;
+        const fieldValueId = randomUUID();
+        await tx.insert(recordFieldValues).values({
+          id: fieldValueId,
+          userId,
+          recordId: input.recordId,
+          category: field.category,
+          fieldKey: field.key,
+          ...next,
+          createdAt: now,
+          updatedAt: now,
+          syncStatus: '기기 내 저장',
+        });
+        const [row] = await tx.select().from(recordFieldValues).where(eq(recordFieldValues.id, fieldValueId)).limit(1);
+        await enqueueOutbox(tx, { entityTable: 'record_field_values', entityId: fieldValueId, op: 'insert', payload: toRecordFieldValueRemotePayload(row) });
+        continue;
+      }
+
+      if (current.valueState === next.valueState && current.valueNumber === next.valueNumber && current.valueText === next.valueText) continue;
+      await tx
+        .update(recordFieldValues)
+        .set({ ...next, updatedAt: now, syncStatus: '기기 내 저장' })
+        .where(eq(recordFieldValues.id, current.id));
+      const [row] = await tx.select().from(recordFieldValues).where(eq(recordFieldValues.id, current.id)).limit(1);
+      await enqueueOutbox(tx, { entityTable: 'record_field_values', entityId: current.id, op: 'update', payload: toRecordFieldValueRemotePayload(row) });
+    }
+
+    await tx.update(records).set({ notes: input.notes, updatedAt: now, syncStatus: '기기 내 저장' }).where(eq(records.id, input.recordId));
+    const [recordRow] = await tx.select().from(records).where(eq(records.id, input.recordId)).limit(1);
+    await enqueueOutbox(tx, { entityTable: 'records', entityId: input.recordId, op: 'update', payload: toRecordRemotePayload(recordRow) });
+  });
+}
+
+export function useRecord(recordId: string | undefined) {
+  return useLiveQuery(db.select().from(records).where(eq(records.id, recordId ?? '')).limit(1), [recordId]);
 }
 
 export function useRecordsForColony(colonyId: string | undefined) {

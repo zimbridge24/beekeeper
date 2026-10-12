@@ -7,6 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AuthProvider, useAuth } from '../auth/AuthProvider';
 import { useDatabaseMigrations } from '../db/migrate';
+import { usePendingVoiceProcessor } from '../features/voice/usePendingVoiceProcessor';
 import { useSyncTriggers } from '../sync/triggers';
 import { usePretendardFonts } from '../theme/fonts';
 
@@ -15,6 +16,7 @@ SplashScreen.preventAutoHideAsync();
 function AppShell() {
   useSyncTriggers();
   const { isAuthenticated } = useAuth();
+  usePendingVoiceProcessor(isAuthenticated);
 
   // app/index.tsx's <Redirect> only fires once, right after cold start —
   // it doesn't re-run once the user has navigated away from "/". Without
