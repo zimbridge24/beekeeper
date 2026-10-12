@@ -18,12 +18,18 @@ type TileProps = { emoji: string; label: string; sub: string; highlight?: boolea
 function Tile({ emoji, label, sub, highlight, onPress }: TileProps) {
   return (
     <Pressable style={{ flex: 1 }} onPress={onPress}>
-      <Card size="large" tint={highlight ? statusColors.caution.bg : undefined} style={{ alignItems: 'center', gap: 4, paddingHorizontal: spacing.xs }}>
+      <Card size="large" tint={highlight ? statusColors.caution.bg : undefined} style={{ flex: 1, alignItems: 'center', gap: 4, paddingHorizontal: spacing.xs }}>
         <Text style={{ fontSize: 28 }}>{emoji}</Text>
         <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: colors.textPrimary }}>{label}</Text>
+        {/* 한 줄로 고정하면 좁은 폰에서 말줄임표로 잘려서, 두 줄까지 줄바꿈하고 세 타일 높이는 flex로 맞춘다. */}
         <Text
-          numberOfLines={1}
-          style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.xs, color: highlight ? statusColors.caution.text : colors.textMuted }}
+          style={{
+            fontFamily: fontFamilies.semibold,
+            fontSize: fontSizes.xs,
+            lineHeight: 15,
+            textAlign: 'center',
+            color: highlight ? statusColors.caution.text : colors.textMuted,
+          }}
         >
           {sub}
         </Text>
