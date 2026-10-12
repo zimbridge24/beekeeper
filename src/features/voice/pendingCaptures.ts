@@ -44,8 +44,15 @@ export type PendingVoiceCapture = {
   result: PendingResult | null;
 };
 
-export const MAX_AUTO_ATTEMPTS = 5;
-const AUTO_RETRY_GAP_MS = 30_000;
+// 자동 재시도 간격은 실패가 쌓일수록 길어진다. 인터넷이 막 돌아온 직후의 첫 실패는 흔해서 처음엔 빨리
+// 다시 해 보고, 5번째 실패 뒤로는 30분에 한 번만, 10번이면 자동은 멈추고 "지금 정리하기"를 눌러야 한다.
+export const AUTO_RETRY_LIMIT = 10;
+const RETRY_GAPS_MS = [0, 10_000, 30_000, 60_000, 120_000];
+const LONG_RETRY_GAP_MS = 30 * 60_000;
+
+export function retryGapMs(attempts: number): number {
+  return attempts < RETRY_GAPS_MS.length ? RETRY_GAPS_MS[attempts] : LONG_RETRY_GAP_MS;
+}
 
 function parseList(raw: string | null | undefined): PendingVoiceCapture[] {
   if (!raw) return [];
@@ -194,7 +201,9 @@ async function runProcessing(
     return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await patch(id, { attempts: capture.attempts + 1, lastError: message });
+    // 요청 도중 연결이 끊긴 경우(터널·약한 신호)는 서버 문제가 아니므로 실패 횟수에 넣지 않는다.
+    const stillOnline = await isOnline().catch(() => true);
+    await patch(id, { attempts: capture.attempts + (stillOnline ? 1 : 0), lastError: message });
     throw err;
   }
 }
@@ -210,15 +219,15 @@ export function processPendingCapture(
   return promise;
 }
 
-// 자동 처리 대상: 아직 결과가 없고, 처리 중이 아니고, 실패 횟수가 한도 안이며, 직전 시도 후 잠깐 지난 것.
+// 자동 처리 대상: 아직 결과가 없고, 처리 중이 아니고, 실패 횟수가 한도 안이며, 직전 시도 후 대기 간격이 지난 것.
 export function nextAutoProcessable(list: PendingVoiceCapture[], now = Date.now()): PendingVoiceCapture | null {
   return (
     list.find(
       (c) =>
         c.status === 'pending' &&
         !inFlight.has(c.id) &&
-        c.attempts < MAX_AUTO_ATTEMPTS &&
-        (c.lastAttemptAt === null || now - c.lastAttemptAt >= AUTO_RETRY_GAP_MS),
+        c.attempts < AUTO_RETRY_LIMIT &&
+        (c.lastAttemptAt === null || now - c.lastAttemptAt >= retryGapMs(c.attempts)),
     ) ?? null
   );
 }

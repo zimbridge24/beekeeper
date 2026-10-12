@@ -10,13 +10,15 @@ import {
   usePendingVoiceCaptures,
 } from './pendingCaptures';
 
-const RECHECK_INTERVAL_MS = 60_000;
+const RECHECK_INTERVAL_MS = 15_000;
+// 연결이 돌아온 직후엔 DNS·라우팅이 아직 안 잡혀 첫 요청이 실패하기 쉽다 — 잠깐 기다렸다가 시도한다.
+const RECONNECT_SETTLE_MS = 3_000;
 // 한 번의 순회에서 처리를 시도하는 최대 횟수 — 예상 못 한 상태에서도 무한히 돌지 않게 하는 안전장치.
 const MAX_ROUNDS = 20;
 
 // 대기열에 남은 음성 녹음을 인터넷이 닿을 때 조용히 하나씩 정리해 둔다. 사용자가 "나중에 처리"를 눌렀거나
 // 산에서 오프라인으로 녹음한 경우, 집에 와서 앱을 열면 이미 정리가 끝나 있고 검토·저장만 하면 된다.
-// 한 번에 하나씩만 돌리고(순서대로), 실패는 대기열 항목에 기록돼 일정 간격·횟수 안에서만 다시 시도한다.
+// 한 번에 하나씩만 돌리고(순서대로), 실패는 대기열 항목에 기록돼 점점 늘어나는 간격·한도 안에서만 다시 시도한다.
 export function usePendingVoiceProcessor(enabled: boolean) {
   const captures = usePendingVoiceCaptures();
   const running = useRef(false);
@@ -45,11 +47,14 @@ export function usePendingVoiceProcessor(enabled: boolean) {
     if (enabled && captures.length > 0) void drain();
   }, [enabled, captures, drain]);
 
-  // 인터넷이 다시 닿을 때, 앱이 앞으로 돌아올 때, 그리고 가끔 — 실패 후 재시도 간격이 지났는지 확인한다.
+  // 인터넷이 다시 닿을 때, 앱이 앞으로 돌아올 때, 그리고 15초마다 — 실패 후 재시도 간격이 지났는지 확인한다.
   useEffect(() => {
     if (!enabled) return;
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
     const unsubscribeNet = NetInfo.addEventListener((state) => {
-      if (state.isConnected) void drain();
+      if (!state.isConnected) return;
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => void drain(), RECONNECT_SETTLE_MS);
     });
     const appStateSub = AppState.addEventListener('change', (state) => {
       if (state === 'active') void drain();
@@ -57,6 +62,7 @@ export function usePendingVoiceProcessor(enabled: boolean) {
     const timer = setInterval(() => void drain(), RECHECK_INTERVAL_MS);
     return () => {
       unsubscribeNet();
+      if (settleTimer) clearTimeout(settleTimer);
       appStateSub.remove();
       clearInterval(timer);
     };

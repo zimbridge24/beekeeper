@@ -25,6 +25,7 @@ export default function HomeScreen() {
   const { pendingItems, conflictCount } = useSyncSummary();
   const pendingVoice = usePendingVoiceCaptures();
   const readyVoiceCount = pendingVoice.filter((c) => c.status === 'ready').length;
+  const retryingVoice = pendingVoice.some((c) => c.status === 'pending' && c.attempts > 0);
   const [startingVisit, setStartingVisit] = useState(false);
 
   useEffect(() => {
@@ -98,7 +99,9 @@ export default function HomeScreen() {
               <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.sm, color: '#8A5A0F', marginTop: 2 }}>
                 {readyVoiceCount > 0
                   ? `정리가 끝난 ${readyVoiceCount}건은 확인하고 저장만 하면 돼요`
-                  : '인터넷이 닿으면 자동으로 정리해 둬요'}
+                  : retryingVoice
+                    ? '정리하지 못해서 다시 시도하는 중이에요. 눌러서 확인하세요'
+                    : '인터넷이 닿으면 자동으로 정리해 둬요'}
               </Text>
             </View>
             <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: '#8A5A0F' }}>보기 ›</Text>

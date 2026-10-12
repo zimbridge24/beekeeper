@@ -88,14 +88,18 @@ export default function VoiceReviewScreen() {
   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
   const [saving, setSaving] = useState(false);
 
-  // 확신도가 충분하고, 어느 봉군인지 알고, 필수 항목이 다 찬 결과는 "이렇게 기록할게요" 요약만 먼저
-  // 보여주고 한 번에 저장할 수 있게 한다. 요약에는 저장될 값이 전부 보이고, "수정하기"로 언제든 전체
-  // 폼을 연다. 확신도가 낮거나 봉군을 못 찾았거나 필수 항목이 비면 처음부터 전체 폼으로 시작한다.
-  const [simple, setSimple] = useState(() => {
-    if (needsReview || aiDrafts.length === 0) return false;
-    if (!params.colonyId && !isLocked) return false;
-    return aiDrafts.every((d) => getMissingRequiredFields(getFieldsForRecordType(d.recordType), stateFromDraft(d)).length === 0);
-  });
+  // 확신도가 충분하고 필수 항목이 다 찬 결과는 "이렇게 기록할게요" 요약만 먼저 보여주고 한 번에 저장할 수
+  // 있게 한다. 요약에는 저장될 값이 전부 보이고, "수정하기"로 언제든 전체 폼을 연다. 확신도가 낮거나
+  // 필수 항목이 비면 처음부터 전체 폼으로 시작한다. (봉군은 이 화면 전에 먼저 고르게 한다 — 아래 참고.)
+  const simpleEligible = useMemo(
+    () =>
+      !needsReview &&
+      aiDrafts.length > 0 &&
+      aiDrafts.every((d) => getMissingRequiredFields(getFieldsForRecordType(d.recordType), stateFromDraft(d)).length === 0),
+    [needsReview, aiDrafts],
+  );
+  const [expanded, setExpanded] = useState(false);
+  const simple = simpleEligible && !expanded;
 
   const openTypes = DETAIL_RECORD_TYPES.filter((t) => sections[t.recordType]);
   const closedTypes = DETAIL_RECORD_TYPES.filter((t) => !sections[t.recordType]);
@@ -124,7 +128,7 @@ export default function VoiceReviewScreen() {
     for (const section of built) {
       const missing = getMissingRequiredFields(getFieldsForRecordType(section.recordType), section.state);
       if (missing.length > 0) {
-        setSimple(false);
+        setExpanded(true);
         Alert.alert(`${RECORD_TYPE_LABELS[section.recordType]}: ${missing.map((f) => f.label).join(', ')}을(를) 골라주세요`, missing.map((f) => f.hint).filter(Boolean).join('\n') || undefined);
         return;
       }
@@ -185,6 +189,51 @@ export default function VoiceReviewScreen() {
     })
     .filter((block): block is NonNullable<typeof block> => block !== null);
 
+  // 어느 봉군인지 모르면(말한 내용에 봉군이 없었거나 못 찾았을 때) 검토 폼보다 먼저 봉군부터 고르게 한다.
+  // 폼 맨 위의 작은 선택칸이면 놓치기 쉽고, 저장 버튼이 잠긴 이유도 알기 어렵다.
+  if (!isLocked && !selectedColonyId) {
+    return (
+      <Screen scroll={false} padded={false}>
+        <ScreenHeader title="어느 봉군인가요?" onBack={() => router.back()} subdued />
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingTop: spacing.lg, paddingBottom: spacing.xxxl }}>
+          <View style={{ gap: spacing.lg }}>
+            <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary, lineHeight: 20 }}>
+              말씀하신 내용에서 봉군을 찾지 못했어요. 이 기록을 남길 봉군을 먼저 골라 주세요. 고르면 내용을 확인하고 저장할 수 있어요.
+            </Text>
+            {transcript ? (
+              <Card size="medium">
+                <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.xs, color: colors.textMuted, marginBottom: 4 }}>말씀하신 내용</Text>
+                <Text numberOfLines={4} style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary, lineHeight: 20 }}>
+                  {transcript}
+                </Text>
+              </Card>
+            ) : null}
+            {apiaryColonies === undefined ? (
+              <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textMuted }}>봉군을 불러오는 중...</Text>
+            ) : apiaryColonies.length === 0 ? (
+              <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary }}>
+                이 양봉장에 등록된 봉군이 없어요. 봉군을 먼저 만든 뒤 홈의 &quot;저장하지 않은 음성 녹음&quot;에서 다시 열어 주세요.
+              </Text>
+            ) : (
+              <View style={{ gap: spacing.sm }}>
+                {apiaryColonies.map((c) => (
+                  <Card key={c.id} size="medium" onPress={() => setSelectedColonyId(c.id)}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.body, color: colors.textPrimary }}>{c.alias}</Text>
+                      <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.sm, color: colors.textMuted }}>
+                        {c.species === 'western' ? '서양벌' : '토종벌'}
+                      </Text>
+                    </View>
+                  </Card>
+                ))}
+              </View>
+            )}
+          </View>
+        </ScrollView>
+      </Screen>
+    );
+  }
+
   return (
     <Screen scroll={false} padded={false}>
       <ScreenHeader title="AI 내검 검토" onBack={() => router.back()} subdued />
@@ -197,13 +246,8 @@ export default function VoiceReviewScreen() {
           ) : (
             <View>
               <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodyLg, color: colors.textPrimary }}>
-                {selectedColonyId ? '감지된 봉군' : '어느 봉군인가요?'}
+                {selectedColonyId === (params.colonyId || '') ? '감지된 봉군' : '선택한 봉군'}
               </Text>
-              {!selectedColonyId && (
-                <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary, marginTop: 4 }}>
-                  말씀하신 봉군을 정확히 찾지 못했어요. 아래에서 선택해주세요.
-                </Text>
-              )}
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md }}>
                 {apiaryColonies?.map((c) => (
                   <Chip key={c.id} label={c.alias} selected={selectedColonyId === c.id} onPress={() => setSelectedColonyId(c.id)} />
@@ -335,7 +379,7 @@ export default function VoiceReviewScreen() {
 
       <View style={{ padding: spacing.xl, gap: spacing.sm }}>
         <Button label={simple ? '이대로 저장' : '검토 완료 · 저장'} onPress={handleSave} loading={saving} disabled={!selectedColonyId} />
-        {simple && <Button label="수정하기" variant="surface" onPress={() => setSimple(false)} disabled={saving} />}
+        {simple && <Button label="수정하기" variant="surface" onPress={() => setExpanded(true)} disabled={saving} />}
       </View>
     </Screen>
   );

@@ -6,7 +6,7 @@ import { Card } from '../../components/Card';
 import { Screen } from '../../components/Screen';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import {
-  MAX_AUTO_ATTEMPTS,
+  AUTO_RETRY_LIMIT,
   PendingVoiceCapture,
   removePendingCapture,
   reviewParamsFor,
@@ -28,8 +28,8 @@ function formatLength(sec: number): string {
 function PendingCard({ capture }: { capture: PendingVoiceCapture }) {
   const colonyId = capture.lockedColonyId ?? capture.result?.colonyId ?? undefined;
   const { data: colonyRows } = useColony(colonyId);
-  const colonyName = colonyRows?.[0]?.alias ?? '봉군을 아직 못 찾았어요';
   const ready = capture.status === 'ready' && !!capture.result;
+  const colonyName = colonyRows?.[0]?.alias ?? (ready ? '봉군은 다음 화면에서 골라요' : '봉군 미정');
 
   const review = () => {
     if (!capture.result) return;
@@ -56,8 +56,8 @@ function PendingCard({ capture }: { capture: PendingVoiceCapture }) {
 
   let status: string;
   if (ready) status = '정리가 끝났어요. 내용을 확인하고 저장만 하면 돼요';
-  else if (capture.attempts >= MAX_AUTO_ATTEMPTS) status = `자동 정리가 여러 번 실패했어요${capture.lastError ? ` (${capture.lastError})` : ''}`;
-  else if (capture.attempts > 0) status = `정리하지 못했어요${capture.lastError ? ` (${capture.lastError})` : ''}. 잠시 뒤 다시 시도해요`;
+  else if (capture.attempts >= AUTO_RETRY_LIMIT) status = `자동 정리를 멈췄어요. 아래 버튼으로 직접 정리해 주세요${capture.lastError ? ` (${capture.lastError})` : ''}`;
+  else if (capture.attempts > 0) status = `정리하지 못했어요${capture.lastError ? ` (${capture.lastError})` : ''}. 잠시 뒤 자동으로 다시 시도해요`;
   else status = '정리를 기다리고 있어요. 인터넷이 닿으면 자동으로 정리해요';
 
   return (
