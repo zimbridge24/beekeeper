@@ -3,7 +3,7 @@ import type { User } from '@supabase/supabase-js';
 import { setAuthenticatedSignal } from './authSignal';
 import { setCurrentUserId } from './currentUser';
 import { db, resetLocalDatabase } from '../db/client';
-import { unregisterPush } from '../features/health/pushNotifications';
+import { isExpoGo } from '../features/health/runtimeEnv';
 import { users } from '../db/schema';
 import { supabase } from '../supabase/client';
 import { invokeEdgeFunction } from '../supabase/edgeFunctionClient';
@@ -43,7 +43,12 @@ export async function signOut() {
   // signed out on this device *now*, not contingent on reachability.
   // 이 기기가 로그아웃한 계정의 알림을 계속 받지 않도록, 세션이 살아 있는 동안(supabase 로그아웃 전에)
   // 서버에서 이 기기의 푸시 토큰을 지운다. 실패해도 로그아웃은 막지 않는다.
-  await unregisterPush();
+  // pushNotifications 모듈은 expo-notifications를 불러오는데, 그게 Expo Go에서는 로드만 해도 에러라서
+  // 여기서 필요할 때만 불러온다 (Expo Go에서는 등록된 토큰도 없다).
+  if (!isExpoGo) {
+    const { unregisterPush } = await import('../features/health/pushNotifications');
+    await unregisterPush();
+  }
   try {
     await supabase.auth.signOut();
   } catch (err) {

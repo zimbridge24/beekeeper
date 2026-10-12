@@ -1,5 +1,5 @@
 import { View } from 'react-native';
-import Svg, { Path, Polygon } from 'react-native-svg';
+import Svg, { Path, Polygon, Rect } from 'react-native-svg';
 
 import { colors } from '../theme/tokens';
 
@@ -81,6 +81,16 @@ export function HomeTabIcon({ color = colors.textMuted, size = 22 }: { color?: s
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Path d="M12 3L2 12H5V20H10V14H14V20H19V12H22L12 3Z" fill={color} />
+    </Svg>
+  );
+}
+
+export function ReportTabIcon({ color = colors.textMuted, size = 22 }: { color?: string; size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Rect x="3.5" y="12" width="4.5" height="8.5" rx="1.2" fill={color} />
+      <Rect x="9.75" y="6" width="4.5" height="14.5" rx="1.2" fill={color} />
+      <Rect x="16" y="9.5" width="4.5" height="11" rx="1.2" fill={color} />
     </Svg>
   );
 }

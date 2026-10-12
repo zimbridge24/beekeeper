@@ -22,7 +22,15 @@ function formatTime(ms: number | null): string {
 }
 
 export default function SyncStatusScreen() {
-  const { pendingCount, conflictCount, lastSyncedAt } = useSyncSummary();
+  const { pendingCount, conflictCount, lastSyncedAt, failedItems } = useSyncSummary();
+
+  // 같은 테이블·같은 사유는 한 줄로 묶어서 보여준다 (필드값 수십 건이 같은 이유로 실패하는 경우가 흔하다).
+  const failureGroups = [...failedItems.reduce((map, item) => {
+    const key = `${item.entityTable}|${item.lastError ?? ''}`;
+    const prev = map.get(key);
+    map.set(key, { table: item.entityTable, error: item.lastError ?? '알 수 없는 오류', count: (prev?.count ?? 0) + 1 });
+    return map;
+  }, new Map<string, { table: string; error: string; count: number }>()).values()];
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
 
@@ -62,6 +70,21 @@ export default function SyncStatusScreen() {
 
         {syncError && (
           <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.xs, color: '#C1443A' }}>{syncError}</Text>
+        )}
+
+        {failureGroups.length > 0 && (
+          <Card size="large" tint="#FBE6E4">
+            <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: '#C1443A' }}>
+              보내지 못한 항목 {failedItems.length}건
+            </Text>
+            <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
+              {failureGroups.slice(0, 4).map((g) => (
+                <Text key={`${g.table}|${g.error}`} style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.xs, color: colors.textSecondary, lineHeight: 16 }}>
+                  {g.table} {g.count}건 · {g.error.length > 140 ? `${g.error.slice(0, 140)}…` : g.error}
+                </Text>
+              ))}
+            </View>
+          </Card>
         )}
 
         {conflictCount > 0 && (

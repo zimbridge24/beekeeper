@@ -1,23 +1,17 @@
 import { Tabs } from 'expo-router';
-import { View } from 'react-native';
+import type { ComponentType } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { HomeTabIcon, HoneycombTabIcon } from '../../components/icons';
-import { PushNotificationManager } from '../../components/PushNotificationManager';
+import { HomeTabIcon, HoneycombTabIcon, ReportTabIcon } from '../../components/icons';
+import { isExpoGo } from '../../features/health/runtimeEnv';
 import { colors, fontFamilies, fontSizes } from '../../theme/tokens';
 
-function SettingsTabIcon({ focused }: { focused: boolean }) {
-  return (
-    <View
-      style={{
-        width: 22,
-        height: 22,
-        borderRadius: 11,
-        backgroundColor: focused ? colors.primary : '#D8D4C4',
-      }}
-    />
-  );
-}
+// Expo Go(안드로이드)는 expo-notifications를 불러오기만 해도 에러를 던지므로, 푸시 관리자는 Expo Go에서
+// 아예 불러오지 않는다 (위쪽 import로 두면 모듈이 로드되는 순간 앱 전체가 죽는다).
+const PushNotificationManager: ComponentType | null = isExpoGo
+  ? null
+  : // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('../../components/PushNotificationManager').PushNotificationManager;
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
@@ -28,7 +22,7 @@ export default function TabsLayout() {
 
   return (
     <>
-      <PushNotificationManager />
+      {PushNotificationManager && <PushNotificationManager />}
       <Tabs
       screenOptions={{
         headerShown: false,
@@ -53,9 +47,11 @@ export default function TabsLayout() {
         options={{ title: '봉군', tabBarIcon: ({ color }) => <HoneycombTabIcon color={color as string} /> }}
       />
       <Tabs.Screen
-        name="settings"
-        options={{ title: '설정', tabBarIcon: ({ focused }) => <SettingsTabIcon focused={focused} /> }}
+        name="report"
+        options={{ title: '리포트', tabBarIcon: ({ color }) => <ReportTabIcon color={color as string} /> }}
       />
+      {/* 설정은 탭 바에서 빠졌지만 홈 우측 상단 마스코트로 계속 들어갈 수 있다 — 라우트는 그대로 둔다. */}
+      <Tabs.Screen name="settings" options={{ href: null }} />
       </Tabs>
     </>
   );

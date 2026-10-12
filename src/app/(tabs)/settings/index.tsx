@@ -5,6 +5,7 @@ import { Card } from '../../../components/Card';
 import { ForwardChevronIcon } from '../../../components/icons';
 import { Screen } from '../../../components/Screen';
 import { ScreenHeader } from '../../../components/ScreenHeader';
+import { isExpoGo } from '../../../features/health/runtimeEnv';
 import { colors, fontFamilies, fontSizes, spacing } from '../../../theme/tokens';
 
 const MENU_ITEMS: {
@@ -19,11 +20,14 @@ const MENU_ITEMS: {
 ];
 
 export default function SettingsScreen() {
+  // 점검 알림 화면은 expo-notifications를 불러와서 Expo Go에서는 열면 에러가 난다 — 거기선 숨긴다.
+  const items = isExpoGo ? MENU_ITEMS.filter((item) => item.href !== '/(tabs)/settings/notifications') : MENU_ITEMS;
+
   return (
     <Screen>
       <ScreenHeader title="설정" />
       <View style={{ gap: spacing.sm }}>
-        {MENU_ITEMS.map((item) => (
+        {items.map((item) => (
           <Card key={item.href} size="medium" onPress={() => router.push(item.href)}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: colors.textPrimary }}>{item.label}</Text>

@@ -6,9 +6,13 @@ import { Card } from '../../../components/Card';
 import { Screen } from '../../../components/Screen';
 import { ScreenHeader } from '../../../components/ScreenHeader';
 import { useNotificationSettings } from '../../../features/health/notificationSettings';
-import { hasNotificationPermission, registerForPush, requestNotificationPermission } from '../../../features/health/pushNotifications';
 import { REMINDER_CATEGORIES, ReminderCategory } from '../../../features/health/reminders';
 import { colors, fontFamilies, fontSizes, spacing } from '../../../theme/tokens';
+
+// pushNotifications는 expo-notifications를 불러오는데, 개발 중 Expo Router가 시작할 때 모든 라우트
+// 파일을 한 번씩 불러와 검증하기 때문에 여기서 위쪽 import로 두면 Expo Go에서는 앱이 시작되자마자
+// 에러가 난다. 실제로 쓰는 순간에만 불러온다.
+const loadPush = () => import('../../../features/health/pushNotifications');
 
 function Row({ label, description, value, disabled, onChange }: { label: string; description?: string; value: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -57,6 +61,7 @@ export default function NotificationSettingsScreen() {
         await update({ ...settings, consent: 'declined' });
         return;
       }
+      const { requestNotificationPermission, registerForPush } = await loadPush();
       const granted = await requestNotificationPermission();
       await update({ ...settings, consent: granted ? 'granted' : 'declined' });
       if (granted) void registerForPush();
@@ -70,7 +75,10 @@ export default function NotificationSettingsScreen() {
     try {
       await update({ ...settings, categories: { ...settings.categories, [key]: next } });
       // OS 권한이 나중에 꺼진 경우를 알려준다.
-      if (next && enabled && !(await hasNotificationPermission())) openOsSettings();
+      if (next && enabled) {
+        const { hasNotificationPermission } = await loadPush();
+        if (!(await hasNotificationPermission())) openOsSettings();
+      }
     } catch (err) {
       saveFailed(err);
     }
