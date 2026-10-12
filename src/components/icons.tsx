@@ -1,5 +1,5 @@
 import { View } from 'react-native';
-import Svg, { Path, Polygon, Rect } from 'react-native-svg';
+import Svg, { Circle, Line, Path, Polygon, Rect } from 'react-native-svg';
 
 import { colors } from '../theme/tokens';
 
@@ -81,6 +81,15 @@ export function HomeTabIcon({ color = colors.textMuted, size = 22 }: { color?: s
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Path d="M12 3L2 12H5V20H10V14H14V20H19V12H22L12 3Z" fill={color} />
+    </Svg>
+  );
+}
+
+export function SearchTabIcon({ color = colors.textMuted, size = 22 }: { color?: string; size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke={color} strokeWidth={2.6} />
+      <Line x1="15.4" y1="15.4" x2="20.5" y2="20.5" stroke={color} strokeWidth={2.8} strokeLinecap="round" />
     </Svg>
   );
 }

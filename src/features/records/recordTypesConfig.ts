@@ -306,6 +306,16 @@ export const DETAIL_RECORD_TYPES: RecordTypeConfig[] = [
         hint: '사용한 약제 제품명',
         visibleWhen: { fieldKey: 'treatment_applied', in: ['done'] },
       },
+      // 적은 그대로 저장·표시한다 (숫자·단위로 쪼개지 않음). "작년에 쓴 약과 용량" 같은 기록 찾기가
+      // 이 칸에서 답을 가져온다 — 비어 있으면 앱은 "용량 기록 없음"이라고만 하고 추정하지 않는다.
+      {
+        key: 'treatment_dose',
+        label: '용량 (선택)',
+        category: 'action',
+        kind: 'text',
+        hint: '제품 설명서 기준으로 사용한 양 (예: 통당 2ml)',
+        visibleWhen: { fieldKey: 'treatment_applied', in: ['done'] },
+      },
     ],
   },
   {

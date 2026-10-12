@@ -2,7 +2,7 @@ import { Tabs } from 'expo-router';
 import type { ComponentType } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { HomeTabIcon, HoneycombTabIcon, ReportTabIcon } from '../../components/icons';
+import { HomeTabIcon, HoneycombTabIcon, ReportTabIcon, SearchTabIcon } from '../../components/icons';
 import { isExpoGo } from '../../features/health/runtimeEnv';
 import { colors, fontFamilies, fontSizes } from '../../theme/tokens';
 
@@ -49,6 +49,10 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="report"
         options={{ title: '리포트', tabBarIcon: ({ color }) => <ReportTabIcon color={color as string} /> }}
+      />
+      <Tabs.Screen
+        name="search"
+        options={{ title: '기록찾기', tabBarIcon: ({ color }) => <SearchTabIcon color={color as string} /> }}
       />
       {/* 설정은 탭 바에서 빠졌지만 홈 우측 상단 마스코트로 계속 들어갈 수 있다 — 라우트는 그대로 둔다. */}
       <Tabs.Screen name="settings" options={{ href: null }} />
