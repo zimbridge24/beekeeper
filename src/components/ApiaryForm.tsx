@@ -22,20 +22,19 @@ type Props = {
 
 export function ApiaryForm({ initial, submitLabel, onSubmit, saving }: Props) {
   const [name, setName] = useState(initial?.name ?? '');
-  const { state: locationState, detect } = useCurrentLocation();
+  const { state: locationState, detect, detectIfAllowed } = useCurrentLocation();
 
   const handleDetect = async () => {
     await detect();
   };
 
-  // Auto-detect on mount for a brand-new apiary (no saved location yet) so
-  // the user doesn't have to tap first. Never auto-run when editing an
-  // existing apiary (`initial` has coordinates) — that would silently
-  // overwrite its saved location with wherever the device happens to be
-  // the moment the edit screen opens.
+  // 새 양봉장(저장된 위치 없음)이고 위치 권한이 이미 허용돼 있으면 열리자마자 자동으로 채운다.
+  // 아직 허용 전이면 설명 없이 시스템 권한 창이 뜨지 않게, 아래 설명을 읽고 사용자가 버튼을 눌렀을 때만 묻는다.
+  // 기존 양봉장 수정 화면(`initial`에 좌표가 있음)에서는 자동으로 돌리지 않는다 — 저장된 위치를
+  // 지금 기기 위치로 조용히 덮어쓰게 되기 때문이다.
   useEffect(() => {
     if (initial?.latitude == null || initial?.longitude == null) {
-      void detect();
+      void detectIfAllowed();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -77,13 +76,13 @@ export function ApiaryForm({ initial, submitLabel, onSubmit, saving }: Props) {
                     ? '위치 권한이 거부되었어요 · 탭하여 다시 시도'
                     : locationState.status === 'error'
                       ? '위치를 가져오지 못했어요 · 탭하여 다시 시도'
-                      : '탭하여 현재 위치 자동 감지'}
+                      : '현재 위치로 주소 자동 입력'}
             </Text>
           </View>
         </Pressable>
         {!location && (
           <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.xs, color: colors.textMuted, lineHeight: 16, marginTop: spacing.xs }}>
-            위치 권한 창이 뜨면 &quot;앱 사용 중에만 허용&quot;을 눌러 주세요. 위치는 양봉장 주소를 채우고 내검 때 날씨를 남기는 데에만 써요.
+            위치는 양봉장 주소를 채우고, 내검할 때 그 지역 날씨를 남기는 데에만 써요. 위 버튼을 누르면 허용 창이 떠요 — &quot;앱 사용 중에만 허용&quot;을 눌러 주세요. 건너뛰고 주소 없이 등록해도 돼요.
           </Text>
         )}
       </View>

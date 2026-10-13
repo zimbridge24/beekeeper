@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { Alert, Pressable, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Card } from '../../../components/Card';
 import { ForwardChevronIcon } from '../../../components/icons';
@@ -32,7 +32,10 @@ export default function ColoniesListScreen() {
   return (
     <Screen scroll={false} padded={false}>
       <ScreenHeader title="봉군 목록" />
-      <View style={{ flex: 1, paddingHorizontal: spacing.xl, paddingTop: spacing.lg, gap: spacing.md }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingTop: spacing.lg, paddingBottom: spacing.xxxl, gap: spacing.md }}
+      >
         {colonies?.length === 0 && (
           <Card size="large">
             <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary }}>
@@ -83,7 +86,7 @@ export default function ColoniesListScreen() {
             <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.body, color: colors.primary }}>+ 봉군 추가</Text>
           </View>
         </Pressable>
-      </View>
+      </ScrollView>
     </Screen>
   );
 }

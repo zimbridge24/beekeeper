@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { Alert, Pressable, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Card } from '../../components/Card';
 import { Screen } from '../../components/Screen';
@@ -21,7 +21,10 @@ export default function ApiariesListScreen() {
   return (
     <Screen scroll={false} padded={false}>
       <ScreenHeader title="양봉장 목록" onBack={() => router.back()} />
-      <View style={{ flex: 1, paddingHorizontal: spacing.xl, paddingTop: spacing.lg, gap: spacing.md }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingTop: spacing.lg, paddingBottom: spacing.xxxl, gap: spacing.md }}
+      >
         {apiaries?.map((apiary) => (
           <Card
             key={apiary.id}
@@ -57,7 +60,7 @@ export default function ApiariesListScreen() {
             <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.body, color: colors.primary }}>+ 양봉장 추가</Text>
           </View>
         </Pressable>
-      </View>
+      </ScrollView>
     </Screen>
   );
 }

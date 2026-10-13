@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 
+import { parseColonyRange } from '../features/colonies/colonyRange';
 import { ColonySpecies } from '../repositories/colonyRepository';
 import { colors, fontFamilies, fontSizes, radius, spacing } from '../theme/tokens';
 import { Button } from './Button';
@@ -52,6 +53,12 @@ export function ColonyForm({ initial, submitLabel, onSubmit, onSubmitBatch, savi
     start !== null && start >= 1 && start <= MAX_START_NUMBER && count !== null && count >= 1 && count <= MAX_BATCH;
   const aliases = batchValid ? batchAliases(start, count) : [];
 
+  // 이름칸에 "1~20"처럼 범위를 쓰면 하나의 이름이 아니라 일괄 등록으로 알아듣는다.
+  const range = onSubmitBatch && !batch ? parseColonyRange(alias) : null;
+  const rangeCount = range ? range.end - range.start + 1 : 0;
+  const rangeTooMany = range !== null && (rangeCount > MAX_BATCH || range.end > MAX_START_NUMBER);
+  const rangeAliases = range && !rangeTooMany ? batchAliases(range.start, rangeCount) : [];
+
   return (
     <View style={{ gap: spacing.xl }}>
       {batch && onSubmitBatch ? (
@@ -87,7 +94,18 @@ export function ColonyForm({ initial, submitLabel, onSubmit, onSubmitBatch, savi
           </View>
         </View>
       ) : (
-        <TextField label="봉군 이름/번호" value={alias} onChangeText={setAlias} placeholder="예) 1번 봉군" />
+        <View style={{ gap: spacing.md }}>
+          <TextField label="봉군 이름/번호" value={alias} onChangeText={setAlias} placeholder="예) 1번 봉군  또는  1~20" />
+          {range && (
+            <View style={{ backgroundColor: colors.surfaceTint, borderRadius: radius.cardMedium, padding: spacing.lg }}>
+              <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.primary, lineHeight: 20 }}>
+                {rangeTooMany
+                  ? `한 번에 최대 ${MAX_BATCH}개까지, 번호는 ${MAX_START_NUMBER}번까지 만들 수 있어요`
+                  : `이름이 아니라 번호 범위로 보여요. ${rangeAliases[0]} ~ ${rangeAliases[rangeAliases.length - 1]} (${rangeAliases.length}개)를 한 번에 만들어요`}
+              </Text>
+            </View>
+          )}
+        </View>
       )}
 
       <View>
@@ -108,15 +126,20 @@ export function ColonyForm({ initial, submitLabel, onSubmit, onSubmitBatch, savi
           onPress={() => onSubmitBatch({ aliases, species })}
         />
       ) : (
-        <Button label={submitLabel} loading={saving} disabled={!alias.trim()} onPress={() => onSubmit({ alias: alias.trim(), species })} />
+        <Button
+          label={range && !rangeTooMany ? `${rangeAliases.length}개 한 번에 만들기` : submitLabel}
+          loading={saving}
+          disabled={!alias.trim() || rangeTooMany}
+          onPress={() => (range && onSubmitBatch ? onSubmitBatch({ aliases: rangeAliases, species }) : onSubmit({ alias: alias.trim(), species }))}
+        />
       )}
 
       {onSubmitBatch && (
-        <Pressable onPress={() => setBatch((b) => !b)} hitSlop={10} style={{ alignItems: 'center' }}>
-          <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.primary }}>
-            {batch ? '하나씩 만들기' : '여러 개 한 번에 만들기 (예: 1번~20번)'}
-          </Text>
-        </Pressable>
+        <Button
+          label={batch ? '하나씩 만들기' : '여러 개 한 번에 만들기'}
+          variant="surface"
+          onPress={() => setBatch((b) => !b)}
+        />
       )}
     </View>
   );

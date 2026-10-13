@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { Text, View } from 'react-native';
+import { ScrollView, Text } from 'react-native';
 
 import { Card } from '../../../components/Card';
 import { Screen } from '../../../components/Screen';
@@ -18,7 +18,10 @@ export default function ConflictsListScreen() {
   return (
     <Screen scroll={false} padded={false}>
       <ScreenHeader title="겹친 수정 확인" onBack={() => router.back()} />
-      <View style={{ flex: 1, paddingHorizontal: spacing.xl, paddingTop: spacing.lg, gap: spacing.md }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingTop: spacing.lg, paddingBottom: spacing.xxxl, gap: spacing.md }}
+      >
         {conflicts?.length === 0 && (
           <Card size="large">
             <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary }}>
@@ -40,7 +43,7 @@ export default function ConflictsListScreen() {
             </Card>
           );
         })}
-      </View>
+      </ScrollView>
     </Screen>
   );
 }

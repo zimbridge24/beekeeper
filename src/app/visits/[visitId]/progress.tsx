@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Text, View } from 'react-native';
+import { Alert, ScrollView, Text, View } from 'react-native';
 
 import { Button } from '../../../components/Button';
 import { Card } from '../../../components/Card';
@@ -40,7 +40,10 @@ export default function VisitProgressScreen() {
   return (
     <Screen scroll={false} padded={false}>
       <ScreenHeader title="연속 내검 현황" onBack={() => router.back()} />
-      <View style={{ flex: 1, paddingHorizontal: spacing.xl, paddingTop: spacing.lg, gap: spacing.md }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingTop: spacing.lg, paddingBottom: spacing.xxxl, gap: spacing.md }}
+      >
         <Card size="large">
           <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodyLg, color: colors.textPrimary }}>
             {done} / {total} 완료
@@ -89,7 +92,7 @@ export default function VisitProgressScreen() {
             );
           })}
         </View>
-      </View>
+      </ScrollView>
 
       <View style={{ padding: spacing.xl }}>
         <Button label="내검 종료하기" variant="surface" onPress={handleEnd} loading={ending} />

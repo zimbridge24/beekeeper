@@ -37,5 +37,16 @@ export function useCurrentLocation() {
     }
   }, []);
 
-  return { state, detect };
+  // 권한 창을 띄우지 않고, 이미 허용돼 있을 때만 위치를 읽는다 — 설명 없이 시스템 권한 창이 뜨는 걸 피하려고
+  // 화면이 열릴 때는 이쪽을 쓰고, 처음 허용은 사용자가 설명을 읽고 버튼을 눌렀을 때 detect()로 받는다.
+  const detectIfAllowed = useCallback(async () => {
+    try {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      if (status === 'granted') await detect();
+    } catch {
+      // 권한 상태를 못 읽으면 조용히 넘어가고, 사용자가 직접 누르면 된다.
+    }
+  }, [detect]);
+
+  return { state, detect, detectIfAllowed };
 }

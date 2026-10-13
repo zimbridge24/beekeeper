@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 
 import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
@@ -51,7 +51,10 @@ export default function SyncStatusScreen() {
   return (
     <Screen scroll={false} padded={false}>
       <ScreenHeader title="동기화 상태" onBack={() => router.back()} />
-      <View style={{ flex: 1, paddingHorizontal: spacing.xl, paddingTop: spacing.lg, gap: spacing.md }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingTop: spacing.lg, paddingBottom: spacing.xxxl, gap: spacing.md }}
+      >
         <Card size="large" tint={allSynced ? '#E1F1E8' : '#E3EDF3'}>
           <Text
             style={{
@@ -97,7 +100,7 @@ export default function SyncStatusScreen() {
             </View>
           </Card>
         )}
-      </View>
+      </ScrollView>
 
       <View style={{ padding: spacing.xl }}>
         <Button label="지금 동기화" onPress={handleSync} loading={syncing} />
