@@ -14,6 +14,7 @@ import {
   RecordTypeField,
 } from '../features/records/recordTypesConfig';
 import { insertPhotosForRecord } from './photoRepository';
+import { upsertVisitColonyStatusIn } from './visitRepository';
 import { DbOrTx, enqueueOutbox } from '../sync/outbox';
 import {
   toAiAnalysisRemotePayload,
@@ -216,6 +217,47 @@ export async function createRecord(input: CreateRecordInput): Promise<string> {
   return recordId;
 }
 
+// 일괄 기록으로 만든 빠른 내검 기록에 남기는 표시 — 타임라인의 "메모"로 보이고, 기록 수정에서 지울 수 있다.
+export const BULK_RECORD_NOTE = '일괄 기록';
+
+// 같은 빠른 내검 값을 여러 봉군에 한 번에 남긴다 (대부분 이상 없는 봉군을 한꺼번에 처리하고, 특이한
+// 봉군만 나중에 따로 고치거나 응애·말벌을 기록하는 흐름). 한 트랜잭션이라 중간에 실패하면 하나도
+// 안 남고, 각 봉군은 이번 방문에서 "완료"로 표시된다. 봉군 id → 만들어진 기록 id를 돌려준다.
+export async function createBulkQuickChecks(input: {
+  visitId: string;
+  colonyIds: string[];
+  state: FieldInputState;
+}): Promise<Record<string, string>> {
+  if (input.colonyIds.length === 0) throw new Error('기록할 봉군이 없습니다.');
+  const now = Date.now();
+  const userId = getCurrentUserId();
+  const recordIds: Record<string, string> = {};
+
+  await db.transaction(async (tx) => {
+    for (const colonyId of input.colonyIds) {
+      const recordId = randomUUID();
+      recordIds[colonyId] = recordId;
+      await insertRecordCore(tx, {
+        recordId,
+        userId,
+        visitId: input.visitId,
+        colonyId,
+        inputMethod: 'quick_select',
+        recordType: 'general_observation',
+        notes: BULK_RECORD_NOTE,
+        captureGroupId: null,
+        fields: getFieldsForRecordType('general_observation'),
+        state: input.state,
+        photos: [],
+        now,
+      });
+      await upsertVisitColonyStatusIn(tx, input.visitId, colonyId, 'done', userId, now);
+    }
+  });
+
+  return recordIds;
+}
+
 export type VoiceCaptureSection = {
   recordType: RecordType;
   // 사용자가 검토 후 확정한 값.
@@ -243,60 +285,91 @@ export type CreateVoiceCaptureInput = {
 // 음성 한 번 = 영역별 기록 여러 개. 같은 발화에서 나온 기록들은 대표 기록의 id를
 // captureGroupId로 공유하고, 원문 전사(record_transcripts)는 대표 기록에 붙는다.
 // 사진과 자유 메모도 대표 기록에 붙는다.
-export async function createVoiceCapture(input: CreateVoiceCaptureInput): Promise<string[]> {
-  if (input.sections.length === 0) throw new Error('저장할 영역이 없습니다.');
-  const now = Date.now();
-  const userId = getCurrentUserId();
+// 한 봉군의 음성 기록 한 벌(영역별 기록 + 원문 전사)을 열린 트랜잭션 안에 넣는다.
+async function insertVoiceCaptureIn(tx: DbOrTx, input: CreateVoiceCaptureInput, userId: string, now: number): Promise<string[]> {
   const recordIds = input.sections.map(() => randomUUID());
   const primaryId = recordIds[0];
   const transcriptId = randomUUID();
 
-  await db.transaction(async (tx) => {
-    for (const [i, section] of input.sections.entries()) {
-      const isPrimary = i === 0;
-      await insertRecordCore(tx, {
-        recordId: recordIds[i],
-        userId,
-        visitId: input.visitId,
-        colonyId: input.colonyId,
-        inputMethod: 'voice_ai',
-        recordType: section.recordType,
-        notes: isPrimary ? (input.notes ?? null) : null,
-        captureGroupId: input.sections.length > 1 ? primaryId : null,
-        fields: getFieldsForRecordType(section.recordType),
-        state: section.state,
-        aiDraft: section.aiDraft,
-        photos: isPrimary ? (input.photos ?? []) : [],
-        now,
-      });
-    }
-
-    await tx.insert(recordTranscripts).values({
-      id: transcriptId,
+  for (const [i, section] of input.sections.entries()) {
+    const isPrimary = i === 0;
+    await insertRecordCore(tx, {
+      recordId: recordIds[i],
       userId,
-      recordId: primaryId,
-      audioLocalUri: input.audioLocalUri ?? null,
-      audioDurationSec: input.audioDurationSec ?? null,
-      rawTranscript: input.rawTranscript,
-      structuringStatus: 'structured',
-      aiConfidenceScore: input.aiConfidenceScore,
-      aiDraftRecordType: input.sections[0].recordType,
-      aiDraftColonyId: input.aiDraftColonyId ?? null,
-      aiDraftNotes: input.aiDraftNotes ?? null,
-      createdAt: now,
-      updatedAt: now,
-      syncStatus: '기기 내 저장',
+      visitId: input.visitId,
+      colonyId: input.colonyId,
+      inputMethod: 'voice_ai',
+      recordType: section.recordType,
+      notes: isPrimary ? (input.notes ?? null) : null,
+      captureGroupId: input.sections.length > 1 ? primaryId : null,
+      fields: getFieldsForRecordType(section.recordType),
+      state: section.state,
+      aiDraft: section.aiDraft,
+      photos: isPrimary ? (input.photos ?? []) : [],
+      now,
     });
-    const [transcriptRow] = await tx.select().from(recordTranscripts).where(eq(recordTranscripts.id, transcriptId)).limit(1);
-    await enqueueOutbox(tx, {
-      entityTable: 'record_transcripts',
-      entityId: transcriptId,
-      op: 'insert',
-      payload: toRecordTranscriptRemotePayload(transcriptRow),
-    });
+  }
+
+  await tx.insert(recordTranscripts).values({
+    id: transcriptId,
+    userId,
+    recordId: primaryId,
+    audioLocalUri: input.audioLocalUri ?? null,
+    audioDurationSec: input.audioDurationSec ?? null,
+    rawTranscript: input.rawTranscript,
+    structuringStatus: 'structured',
+    aiConfidenceScore: input.aiConfidenceScore,
+    aiDraftRecordType: input.sections[0].recordType,
+    aiDraftColonyId: input.aiDraftColonyId ?? null,
+    aiDraftNotes: input.aiDraftNotes ?? null,
+    createdAt: now,
+    updatedAt: now,
+    syncStatus: '기기 내 저장',
+  });
+  const [transcriptRow] = await tx.select().from(recordTranscripts).where(eq(recordTranscripts.id, transcriptId)).limit(1);
+  await enqueueOutbox(tx, {
+    entityTable: 'record_transcripts',
+    entityId: transcriptId,
+    op: 'insert',
+    payload: toRecordTranscriptRemotePayload(transcriptRow),
   });
 
   return recordIds;
+}
+
+export async function createVoiceCapture(input: CreateVoiceCaptureInput): Promise<string[]> {
+  if (input.sections.length === 0) throw new Error('저장할 영역이 없습니다.');
+  const now = Date.now();
+  const userId = getCurrentUserId();
+  return db.transaction((tx) => insertVoiceCaptureIn(tx, input, userId, now));
+}
+
+// 한 번 말한 내용이 여러 봉군에 해당할 때(예: "오늘 전부 괜찮아") 같은 내용을 봉군마다 한꺼번에 남긴다.
+// 봉군마다 자기 기록 한 벌과 자기 원문 전사를 갖고(각 봉군의 타임라인이 그 자체로 읽히게), 한 트랜잭션이라
+// 중간에 실패하면 하나도 안 남는다. 사진은 첫 봉군에만 붙인다. 각 봉군은 이번 방문에서 "완료"로 표시된다.
+// 봉군 id → 만들어진 기록 id 목록을 돌려준다.
+export async function createVoiceCaptureForColonies(
+  input: Omit<CreateVoiceCaptureInput, 'colonyId'> & { colonyIds: string[] },
+): Promise<Record<string, string[]>> {
+  if (input.sections.length === 0) throw new Error('저장할 영역이 없습니다.');
+  if (input.colonyIds.length === 0) throw new Error('기록할 봉군이 없습니다.');
+  const now = Date.now();
+  const userId = getCurrentUserId();
+  const byColony: Record<string, string[]> = {};
+
+  await db.transaction(async (tx) => {
+    for (const [i, colonyId] of input.colonyIds.entries()) {
+      byColony[colonyId] = await insertVoiceCaptureIn(
+        tx,
+        { ...input, colonyId, photos: i === 0 ? input.photos : [] },
+        userId,
+        now,
+      );
+      await upsertVisitColonyStatusIn(tx, input.visitId, colonyId, 'done', userId, now);
+    }
+  });
+
+  return byColony;
 }
 
 // 기록 삭제 — 다른 곳과 같은 소프트 삭제(deletedAt)다. 타임라인·분석·검색·서버 알림이 전부 deletedAt이

@@ -79,3 +79,55 @@ export function buildStrengthTrend(source: HealthSource, colonyId: string, perio
   }
   return [...byDay.values()].sort((a, b) => a.at - b.at);
 }
+
+// 추이 그래프에서 같은 날 기록을 한 점으로 묶는 키 (벽시계 날짜 기준).
+export function dayKey(at: number, tz?: number): string {
+  const w = wallClock(at, tz);
+  return `${w.year}-${w.month}-${w.day}`;
+}
+
+export type AnomalyDay = {
+  // 그날 특이점이 기록된 가장 늦은 시각.
+  at: number;
+  // 무엇이 특이했는지 (중복 없이): 이상 징후 · 응애 주의/높음 · 말벌 · 여왕벌 없음.
+  labels: string[];
+};
+
+const RISK_WORD: Record<string, string> = { low: '관찰', caution: '주의', high: '높음' };
+
+// 봉군에서 "특이점이 있었던 날". 기록된 값에서만 뽑는다 — 새 판정은 없다:
+//   · 빠른 내검에서 이상 징후를 "있음"으로 고른 기록
+//   · 응애 검사에서 위험단계가 주의 이상(기준표·계산은 알림과 같다)
+//   · 말벌을 봤거나 피해가 기록된 날
+//   · 여왕벌을 "없음"으로 기록한 날
+export function buildAnomalyDays(
+  source: HealthSource,
+  colonyId: string,
+  period: TrendPeriod,
+  abnormalSigns: { colonyId: string; at: number }[],
+): AnomalyDay[] {
+  const series = extractColonySeries(source, colonyId);
+  const days = TREND_PERIOD_DAYS[period];
+  const since = days === null ? -Infinity : source.now - days * DAY_MS;
+
+  const flagged: { at: number; label: string }[] = [];
+  for (const a of abnormalSigns) if (a.colonyId === colonyId) flagged.push({ at: a.at, label: '이상 징후' });
+  for (const m of series.miteChecks) {
+    if (m.riskLevel === 'caution' || m.riskLevel === 'high') flagged.push({ at: m.at, label: `응애 ${RISK_WORD[m.riskLevel]}` });
+  }
+  for (const h of series.hornetEvents) flagged.push({ at: h.at, label: `말벌 ${RISK_WORD[h.riskLevel] ?? '관찰'}` });
+  for (const q of series.queen) if (!q.present) flagged.push({ at: q.at, label: '여왕벌 없음' });
+
+  const byDay = new Map<string, AnomalyDay>();
+  for (const f of flagged) {
+    if (f.at < since) continue;
+    const key = dayKey(f.at, source.tz);
+    const day = byDay.get(key);
+    if (!day) byDay.set(key, { at: f.at, labels: [f.label] });
+    else {
+      day.at = Math.max(day.at, f.at);
+      if (!day.labels.includes(f.label)) day.labels.push(f.label);
+    }
+  }
+  return [...byDay.values()].sort((a, b) => a.at - b.at);
+}

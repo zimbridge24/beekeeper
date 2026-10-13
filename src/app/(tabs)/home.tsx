@@ -88,6 +88,9 @@ export default function HomeScreen() {
       </View>
 
       <Button label="AI 음성으로 내검하기" onPress={handleStartVisit} loading={startingVisit} />
+      {(totalColonies ?? 0) > 0 && (
+        <Button label="봉군 전체 일괄 기록" variant="surface" onPress={() => router.push('/visits/bulk-record')} />
+      )}
 
       {pendingVoice.length > 0 && (
         <Card size="medium" tint="#FBEED9" onPress={() => router.push('/visits/pending-voice')}>

@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Pressable, ScrollView, Text, View } from 'react-native';
 
 import {
   RecordingPresets,
@@ -11,6 +11,7 @@ import {
 
 import { BackChevronIcon, CheckIcon, MicIcon } from '../../../components/icons';
 import { Button } from '../../../components/Button';
+import { Chip } from '../../../components/Chip';
 import { Screen } from '../../../components/Screen';
 import {
   addPendingCapture,
@@ -19,7 +20,7 @@ import {
   reviewParamsFor,
 } from '../../../features/voice/pendingCaptures';
 import { useColony } from '../../../repositories/colonyRepository';
-import { useVisit } from '../../../repositories/visitRepository';
+import { useApiaryColoniesWithVisitStatus, useVisit } from '../../../repositories/visitRepository';
 import { colors, fontFamilies, fontSizes, radius, shadows, spacing } from '../../../theme/tokens';
 
 type Stage = 'idle' | 'recording' | 'transcribing' | 'structuring' | 'error';
@@ -49,13 +50,19 @@ export default function VoiceRecordScreen() {
   // 바로 변환·분석을 이어간다.
   const {
     visitId,
-    colonyId: lockedColonyId,
+    colonyId: initialColonyId,
     resumeCaptureId,
-  } = useLocalSearchParams<{ visitId: string; colonyId?: string; resumeCaptureId?: string }>();
+    savedAlias,
+  } = useLocalSearchParams<{ visitId: string; colonyId?: string; resumeCaptureId?: string; savedAlias?: string }>();
   const { data: visitRows } = useVisit(visitId);
   const visit = visitRows?.[0];
-  const { data: lockedColonyRows } = useColony(lockedColonyId || undefined);
+  // 기록할 봉군. 봉군 상세·목록·"다음도 기록하기"에서 들어오면 정해져 있고, 비어 있으면 말한 내용에서 AI가
+  // 찾는다. 녹음 전에 화면에서 바꿀 수 있다 — 어느 봉군에 남는지가 항상 눈에 보이게 한다.
+  const [targetColonyId, setTargetColonyId] = useState(initialColonyId || '');
+  const [picking, setPicking] = useState(false);
+  const { data: lockedColonyRows } = useColony(targetColonyId || undefined);
   const lockedColony = lockedColonyRows?.[0];
+  const { data: colonyStatusRows } = useApiaryColoniesWithVisitStatus(visit?.apiaryId, visitId);
 
   const recorder = useAudioRecorder({ ...RecordingPresets.HIGH_QUALITY, directory: 'document' });
 
@@ -85,7 +92,11 @@ export default function VoiceRecordScreen() {
       const capture = (await listPendingCaptures()).find((c) => c.id === id);
       if (!capture) throw new Error('저장된 녹음을 찾을 수 없어요.');
       if (!mountedRef.current) return;
-      router.replace({ pathname: '/visits/[visitId]/voice-review', params: reviewParamsFor(capture, result) });
+      // 녹음 직후 흐름(= 이어서 처리하러 온 게 아님)이면 저장 뒤 바로 다음 봉군 녹음으로 넘어가게 표시한다.
+      router.replace({
+        pathname: '/visits/[visitId]/voice-review',
+        params: { ...reviewParamsFor(capture, result), ...(resumeCaptureId ? {} : { autoNext: '1' }) },
+      });
     } catch (err) {
       if (!mountedRef.current) return;
       setErrorMessage(err instanceof Error ? err.message : String(err));
@@ -134,7 +145,7 @@ export default function VoiceRecordScreen() {
       const capture = await addPendingCapture({
         visitId,
         apiaryId: visit?.apiaryId ?? '',
-        lockedColonyId: lockedColonyId || null,
+        lockedColonyId: targetColonyId || null,
         audioUri: uri,
         durationSec,
       });
@@ -199,42 +210,108 @@ export default function VoiceRecordScreen() {
       </View>
 
       <View style={{ flex: 1, paddingHorizontal: spacing.xl, paddingTop: spacing.xl, gap: spacing.lg }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-          <Image
-            source={require('../../../../assets/beehero-character2.png')}
-            style={{ width: 96, height: 96 }}
-            resizeMode="contain"
-          />
-          <View style={{ flex: 1 }}>
-            {/* Border-triangle tails have no real backing box, so Android's
-                elevation shadow ignores them entirely — a small rotated
-                square (mostly hidden behind the bubble, tip peeking out)
-                is a real filled view, so it picks up the same shadow. */}
-            <View
-              style={[
-                {
-                  position: 'absolute',
-                  left: -6,
-                  top: '50%',
-                  marginTop: -6,
-                  width: 16,
-                  height: 16,
-                  borderRadius: 3,
-                  backgroundColor: colors.surface,
-                  transform: [{ rotate: '45deg' }],
-                },
-                shadows.cardSmall,
-              ]}
+        {!picking && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+            <Image
+              source={require('../../../../assets/beehero-character2.png')}
+              style={{ width: 96, height: 96 }}
+              resizeMode="contain"
             />
-            <View style={[{ backgroundColor: colors.surface, borderRadius: radius.cardMedium, padding: spacing.lg }, shadows.cardSmall]}>
-              <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.body, color: colors.textPrimary, lineHeight: 22 }}>
-                함께 만드는{'\n'}건강한 꿀벌의 내일
-              </Text>
+            <View style={{ flex: 1 }}>
+              {/* Border-triangle tails have no real backing box, so Android's
+                  elevation shadow ignores them entirely — a small rotated
+                  square (mostly hidden behind the bubble, tip peeking out)
+                  is a real filled view, so it picks up the same shadow. */}
+              <View
+                style={[
+                  {
+                    position: 'absolute',
+                    left: -6,
+                    top: '50%',
+                    marginTop: -6,
+                    width: 16,
+                    height: 16,
+                    borderRadius: 3,
+                    backgroundColor: colors.surface,
+                    transform: [{ rotate: '45deg' }],
+                  },
+                  shadows.cardSmall,
+                ]}
+              />
+              <View style={[{ backgroundColor: colors.surface, borderRadius: radius.cardMedium, padding: spacing.lg }, shadows.cardSmall]}>
+                <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.body, color: colors.textPrimary, lineHeight: 22 }}>
+                  함께 만드는{'\n'}건강한 꿀벌의 내일
+                </Text>
+              </View>
             </View>
           </View>
-        </View>
+        )}
+        {stage === 'idle' && savedAlias ? (
+          <View style={{ backgroundColor: '#E1F1E8', borderRadius: radius.cardMedium, paddingVertical: spacing.sm, paddingHorizontal: spacing.lg }}>
+            <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: '#2C7A57' }}>
+              ✓ {savedAlias} 저장됐어요 · 이어서 다음 봉군을 기록해요
+            </Text>
+          </View>
+        ) : null}
 
-        {stage === 'idle' && !lockedColony && (
+        {(stage === 'idle' || stage === 'recording') && (
+          <View
+            style={[
+              { backgroundColor: colors.surface, borderRadius: radius.cardMedium, padding: spacing.lg, gap: spacing.md },
+              shadows.cardSmall,
+            ]}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.xs, color: colors.textMuted }}>기록할 봉군</Text>
+                <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.xl, color: colors.textPrimary, marginTop: 2 }}>
+                  {lockedColony ? lockedColony.alias : '말씀하시면 자동으로 찾아요'}
+                </Text>
+                {!lockedColony && (
+                  <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.sm, color: colors.textSecondary, marginTop: 2 }}>
+                    &quot;1번 봉군은…&quot;처럼 봉군 이름을 같이 말씀해 주세요
+                  </Text>
+                )}
+              </View>
+              {stage === 'idle' && (
+                <Pressable onPress={() => setPicking((p) => !p)} hitSlop={10}>
+                  <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: colors.primary }}>
+                    {picking ? '닫기' : lockedColony ? '바꾸기' : '직접 고르기'}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+            {picking && stage === 'idle' && (
+              <ScrollView style={{ maxHeight: 260 }} nestedScrollEnabled>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                  <Chip
+                    label="말해서 알려줄게요"
+                    selected={!targetColonyId}
+                    onPress={() => {
+                      setTargetColonyId('');
+                      setPicking(false);
+                    }}
+                  />
+                  {[...(colonyStatusRows ?? [])]
+                    .sort((x, y) => Number(x.colony.internalCode) - Number(y.colony.internalCode))
+                    .map(({ colony, visitColony }) => (
+                      <Chip
+                        key={colony.id}
+                        label={`${colony.alias}${visitColony?.status === 'done' ? ' ✓' : ''}`}
+                        selected={targetColonyId === colony.id}
+                        onPress={() => {
+                          setTargetColonyId(colony.id);
+                          setPicking(false);
+                        }}
+                      />
+                    ))}
+                </View>
+              </ScrollView>
+            )}
+          </View>
+        )}
+
+        {stage === 'idle' && !lockedColony && !picking && (
           <View style={{ backgroundColor: colors.surfaceTint, borderRadius: radius.cardMedium, padding: spacing.lg, gap: spacing.xs }}>
             <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.xs, color: colors.primary, textAlign: 'center' }}>
               한 번에 한 봉군씩 말씀해주세요
@@ -339,7 +416,7 @@ export default function VoiceRecordScreen() {
           </View>
         )}
 
-        {(stage === 'idle' || stage === 'recording') && (
+        {(stage === 'idle' || stage === 'recording') && !picking && (
           <View
             style={[
               { backgroundColor: colors.surface, borderRadius: radius.cardMedium, padding: spacing.lg },

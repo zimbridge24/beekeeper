@@ -6,9 +6,10 @@ import { Button } from '../../../components/Button';
 import { CheckIcon } from '../../../components/icons';
 import { ReferenceNote } from '../../../components/ReferenceNote';
 import { Screen } from '../../../components/Screen';
+import { pickNextColony } from '../../../features/voice/nextColony';
 import { usePendingVoiceCaptures } from '../../../features/voice/pendingCaptures';
 import { useColony } from '../../../repositories/colonyRepository';
-import { endVisit } from '../../../repositories/visitRepository';
+import { endVisit, useApiaryColoniesWithVisitStatus, useVisit } from '../../../repositories/visitRepository';
 import { colors, fontFamilies, fontSizes, spacing } from '../../../theme/tokens';
 
 // 응애·말벌·월동 준비는 "같은 점검을 다른 봉군에도" 이어서 하는 일이 흔해서, 해당 봉군 선택
@@ -20,9 +21,11 @@ const SAME_TYPE_NEXT: Record<string, { label: string; go: () => void }> = {
 };
 
 export default function RecordSavedScreen() {
-  const { visitId, colonyId, recordType, recordTypeTitle, summary } = useLocalSearchParams<{
+  const { visitId, colonyId, colonyCount, recordType, recordTypeTitle, summary } = useLocalSearchParams<{
     visitId: string;
     colonyId?: string;
+    // 여러 봉군에 한꺼번에 남겼을 때만 넘어온다.
+    colonyCount?: string;
     // 추가 기록 폼(응애·말벌·월동 준비·방제 …)에서 저장했을 때만 넘어온다. 없으면 빠른 내검/음성 흐름.
     recordType?: string;
     recordTypeTitle?: string;
@@ -31,6 +34,11 @@ export default function RecordSavedScreen() {
   const { data: colonyRows } = useColony(colonyId || undefined);
   const colony = colonyRows?.[0];
   const pendingVoice = usePendingVoiceCaptures();
+  // 이번 방문에서 아직 기록하지 않은 다음 봉군 — "다음도 음성으로 기록하기"가 그 봉군으로 바로 열린다.
+  const { data: visitRows } = useVisit(visitId);
+  const { data: statusRows } = useApiaryColoniesWithVisitStatus(visitRows?.[0]?.apiaryId, visitId);
+  const nextColony = statusRows ? pickNextColony(statusRows, colonyId || undefined)?.colony : undefined;
+  const allDone = !!statusRows && statusRows.length > 0 && !nextColony;
   const [ending, setEnding] = useState(false);
 
   const handleEndVisit = async () => {
@@ -61,13 +69,18 @@ export default function RecordSavedScreen() {
         <Text
           style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.display1, color: colors.textPrimary, textAlign: 'center' }}
         >
-          {colony?.alias ?? ''} {recordTypeTitle ?? ''} 기록 저장 완료
+          {Number(colonyCount) > 1 ? `${colonyCount}개 봉군` : (colony?.alias ?? '')} {recordTypeTitle ?? ''} 기록 저장 완료
         </Text>
         <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary, textAlign: 'center' }}>
           입력한 내용이 봉군 이력에 연결되었어요
         </Text>
         {summary ? (
           <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.body, color: colors.primary, textAlign: 'center' }}>{summary}</Text>
+        ) : null}
+        {allDone && !recordType ? (
+          <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.body, color: '#2C7A57', textAlign: 'center' }}>
+            이번 방문의 모든 봉군을 기록했어요
+          </Text>
         ) : null}
         {summary ? <ReferenceNote kind="general" /> : null}
       </View>
@@ -101,8 +114,13 @@ export default function RecordSavedScreen() {
               />
             )}
             <Button
-              label="다음도 음성으로 기록하기"
-              onPress={() => router.replace({ pathname: '/visits/[visitId]/voice-record', params: { visitId } })}
+              label={nextColony ? `다음: ${nextColony.alias} 음성으로 기록하기` : '다음도 음성으로 기록하기'}
+              onPress={() =>
+                router.replace({
+                  pathname: '/visits/[visitId]/voice-record',
+                  params: nextColony ? { visitId, colonyId: nextColony.id } : { visitId },
+                })
+              }
             />
             <Button
               label="목록에서 봉군 선택하기"

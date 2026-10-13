@@ -6,7 +6,7 @@ import { getCurrentUserId } from '../auth/currentUser';
 import { db } from '../db/client';
 import { apiaries, colonies, visitColonies, visits } from '../db/schema';
 import { getDeviceLocation } from '../location/getDeviceLocation';
-import { enqueueOutbox } from '../sync/outbox';
+import { DbOrTx, enqueueOutbox } from '../sync/outbox';
 import { toVisitColonyRemotePayload, toVisitRemotePayload } from '../sync/tables';
 import { weatherProvider } from '../weather';
 
@@ -168,7 +168,56 @@ async function captureVisitContext(
 }
 
 // Insert-or-update: the visit_colonies row may not exist yet the first time
-// a colony is touched during a visit.
+// a colony is touched during a visit. 이미 열린 트랜잭션 안에서 부르는 버전 — 일괄 기록처럼
+// 기록 저장과 방문 상태 갱신을 한 번에 묶어야 하는 곳이 쓴다.
+export async function upsertVisitColonyStatusIn(
+  tx: DbOrTx,
+  visitId: string,
+  colonyId: string,
+  status: 'pending' | 'in_progress' | 'done' | 'skipped',
+  userId: string,
+  now: number,
+): Promise<void> {
+  const [existing] = await tx
+    .select()
+    .from(visitColonies)
+    .where(and(eq(visitColonies.visitId, visitId), eq(visitColonies.colonyId, colonyId)))
+    .limit(1);
+
+  let id = existing?.id;
+  if (existing) {
+    await tx
+      .update(visitColonies)
+      .set({ status, updatedAt: now, syncStatus: '기기 내 저장' })
+      .where(eq(visitColonies.id, existing.id));
+  } else {
+    id = randomUUID();
+    const [{ value: existingCount }] = await tx
+      .select({ value: count() })
+      .from(visitColonies)
+      .where(eq(visitColonies.visitId, visitId));
+    await tx.insert(visitColonies).values({
+      id,
+      userId,
+      visitId,
+      colonyId,
+      sequenceOrder: existingCount,
+      status,
+      createdAt: now,
+      updatedAt: now,
+      syncStatus: '기기 내 저장',
+    });
+  }
+
+  const [row] = await tx.select().from(visitColonies).where(eq(visitColonies.id, id!)).limit(1);
+  await enqueueOutbox(tx, {
+    entityTable: 'visit_colonies',
+    entityId: row.id,
+    op: existing ? 'update' : 'insert',
+    payload: toVisitColonyRemotePayload(row),
+  });
+}
+
 export async function upsertVisitColonyStatus(
   visitId: string,
   colonyId: string,
@@ -176,47 +225,7 @@ export async function upsertVisitColonyStatus(
 ): Promise<void> {
   const now = Date.now();
   const userId = getCurrentUserId();
-
-  await db.transaction(async (tx) => {
-    const [existing] = await tx
-      .select()
-      .from(visitColonies)
-      .where(and(eq(visitColonies.visitId, visitId), eq(visitColonies.colonyId, colonyId)))
-      .limit(1);
-
-    let id = existing?.id;
-    if (existing) {
-      await tx
-        .update(visitColonies)
-        .set({ status, updatedAt: now, syncStatus: '기기 내 저장' })
-        .where(eq(visitColonies.id, existing.id));
-    } else {
-      id = randomUUID();
-      const [{ value: existingCount }] = await tx
-        .select({ value: count() })
-        .from(visitColonies)
-        .where(eq(visitColonies.visitId, visitId));
-      await tx.insert(visitColonies).values({
-        id,
-        userId,
-        visitId,
-        colonyId,
-        sequenceOrder: existingCount,
-        status,
-        createdAt: now,
-        updatedAt: now,
-        syncStatus: '기기 내 저장',
-      });
-    }
-
-    const [row] = await tx.select().from(visitColonies).where(eq(visitColonies.id, id!)).limit(1);
-    await enqueueOutbox(tx, {
-      entityTable: 'visit_colonies',
-      entityId: row.id,
-      op: existing ? 'update' : 'insert',
-      payload: toVisitColonyRemotePayload(row),
-    });
-  });
+  await db.transaction((tx) => upsertVisitColonyStatusIn(tx, visitId, colonyId, status, userId, now));
 }
 
 export async function endVisit(id: string): Promise<void> {

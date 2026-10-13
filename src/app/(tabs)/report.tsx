@@ -8,12 +8,20 @@ import { ForwardChevronIcon } from '../../components/icons';
 import { ReferenceNote } from '../../components/ReferenceNote';
 import { RiskBadge } from '../../components/RiskBadge';
 import { Screen } from '../../components/Screen';
-import { StrengthTrendChart } from '../../components/StrengthTrendChart';
+import { StrengthTrendChart, TrendPoint } from '../../components/StrengthTrendChart';
 import { STRENGTH_LABEL } from '../../features/health/facts';
-import { buildColonyStatusRows, buildStrengthTrend, ColonyStatusRow, FOOD_LABEL, TrendPeriod } from '../../features/health/report';
+import {
+  buildAnomalyDays,
+  buildColonyStatusRows,
+  buildStrengthTrend,
+  ColonyStatusRow,
+  dayKey,
+  FOOD_LABEL,
+  TrendPeriod,
+} from '../../features/health/report';
 import { daysBetween } from '../../features/health/time';
 import { useApiaries } from '../../repositories/apiaryRepository';
-import { useHealthSource } from '../../repositories/healthRepository';
+import { useAbnormalSignMoments, useHealthSource } from '../../repositories/healthRepository';
 import { colors, fontFamilies, fontSizes, spacing, statusColors } from '../../theme/tokens';
 
 const PERIOD_OPTIONS: { value: TrendPeriod; label: string }[] = [
@@ -53,6 +61,7 @@ function StatusCell({ label, value, sub, warn }: { label: string; value: string 
 
 export default function ReportScreen() {
   const source = useHealthSource();
+  const { data: abnormalMoments } = useAbnormalSignMoments();
   const { data: apiaries } = useApiaries({ includeArchived: true });
   const scrollRef = useRef<ScrollView>(null);
   const [chartY, setChartY] = useState(0);
@@ -77,10 +86,25 @@ export default function ReportScreen() {
   }, [source, rows]);
 
   const activeId = rows?.some((r) => r.colonyId === selectedId) ? selectedId : defaultId;
-  const points = useMemo(
+  const strengthPoints = useMemo(
     () => (source && activeId ? buildStrengthTrend(source, activeId, period) : []),
     [source, activeId, period],
   );
+  // 특이점이 있던 날(이상 징후·응애 주의 이상·말벌·여왕벌 없음)은 그래프에서 빨갛게 보여준다.
+  const anomalyDays = useMemo(
+    () => (source && activeId ? buildAnomalyDays(source, activeId, period, abnormalMoments ?? []) : []),
+    [source, activeId, period, abnormalMoments],
+  );
+  const { points, anomalyOnly, anomalyLabelsByDay } = useMemo(() => {
+    const tz = source?.tz;
+    const labels = new Map(anomalyDays.map((d) => [dayKey(d.at, tz), d.labels]));
+    const strengthDays = new Set(strengthPoints.map((p) => dayKey(p.at, tz)));
+    return {
+      points: strengthPoints.map((p): TrendPoint => ({ ...p, anomaly: labels.has(dayKey(p.at, tz)) })),
+      anomalyOnly: anomalyDays.filter((d) => !strengthDays.has(dayKey(d.at, tz))),
+      anomalyLabelsByDay: labels,
+    };
+  }, [source?.tz, strengthPoints, anomalyDays]);
 
   const apiaryName = (id: string) => apiaries?.find((a) => a.id === id)?.name ?? '';
   const multiApiary = new Set(rows?.map((r) => r.apiaryId)).size > 1;
@@ -95,7 +119,12 @@ export default function ReportScreen() {
 
   const now = source?.now ?? 0;
   const activeRow = rows?.find((r) => r.colonyId === activeId) ?? null;
-  const recentPoints = [...points].reverse().slice(0, 5);
+  const recentItems = [
+    ...points.map((p) => ({ at: p.at, rank: p.rank as number | null, labels: anomalyLabelsByDay.get(dayKey(p.at, source?.tz)) ?? [] })),
+    ...anomalyOnly.map((d) => ({ at: d.at, rank: null as number | null, labels: d.labels })),
+  ]
+    .sort((a, b) => b.at - a.at)
+    .slice(0, 6);
 
   return (
     <Screen scroll={false} padded={false}>
@@ -212,22 +241,28 @@ export default function ReportScreen() {
                   <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.body, color: colors.textPrimary }}>{activeRow.alias}</Text>
                 )}
 
-                {points.length === 0 ? (
+                {points.length === 0 && anomalyOnly.length === 0 ? (
                   <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary, lineHeight: 20 }}>
                     이 기간에 봉세를 기록한 내용이 없어요. 내검에서 봉세를 고르면 여기에 쌓여요.
                   </Text>
                 ) : (
                   <>
-                    <StrengthTrendChart points={points} />
+                    <StrengthTrendChart points={points} anomalyOnly={anomalyOnly} />
                     <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.sm, color: colors.textSecondary }}>
-                      {points.length === 1
-                        ? '기록이 2번 이상 쌓이면 변화가 선으로 이어져요.'
-                        : `${points.length}번 기록 · 처음 ${STRENGTH_LABEL[points[0].rank]} → 최근 ${STRENGTH_LABEL[points[points.length - 1].rank]}`}
+                      {points.length === 0
+                        ? '이 기간에는 봉세 기록 없이 특이점만 남아 있어요.'
+                        : points.length === 1
+                          ? '기록이 2번 이상 쌓이면 변화가 선으로 이어져요.'
+                          : `${points.length}번 기록 · 처음 ${STRENGTH_LABEL[points[0].rank]} → 최근 ${STRENGTH_LABEL[points[points.length - 1].rank]}`}
                     </Text>
                     <View style={{ gap: 4 }}>
-                      {recentPoints.map((p) => (
-                        <Text key={p.at} style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.sm, color: colors.textMuted }}>
-                          {new Date(p.at).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })} · {STRENGTH_LABEL[p.rank]}
+                      {recentItems.map((item) => (
+                        <Text key={item.at} style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.sm, color: colors.textMuted }}>
+                          {new Date(item.at).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
+                          {item.rank ? ` · ${STRENGTH_LABEL[item.rank]}` : ''}
+                          {item.labels.length > 0 ? (
+                            <Text style={{ color: statusColors.danger.text }}> · 특이점: {item.labels.join(', ')}</Text>
+                          ) : null}
                         </Text>
                       ))}
                     </View>
@@ -238,7 +273,7 @@ export default function ReportScreen() {
 
             <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.xs, color: colors.textMuted, lineHeight: 16 }}>
               봉세를 기록한 날의 값만 그려요 (하루에 여러 번이면 마지막 값). 기록하지 않은 기간은 선으로 이어 보여줄 뿐 그 사이의
-              상태를 알려주는 건 아니에요.
+              상태를 알려주는 건 아니에요. 빨간 점은 그날 이상 징후·응애 주의 이상·말벌·여왕벌 없음 중 하나가 기록된 날이에요.
             </Text>
           </View>
         )}

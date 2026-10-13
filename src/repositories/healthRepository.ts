@@ -56,3 +56,17 @@ export function useHealthSource(): HealthSource | undefined {
     return { now, colonies: colonyRows, records: recordRows, fieldValues: fieldValueRows };
   }, [now, colonyRows, recordRows, fieldValueRows]);
 }
+
+// 빠른 내검에서 "이상 징후: 있음"을 고른 기록의 봉군·시각. 봉세 추이 그래프가 그날을 특이점으로 표시하는 데
+// 쓴다 (분석 키 목록과 따로 두어 서버가 같이 쓰는 facts 코드를 건드리지 않는다).
+export function useAbnormalSignMoments() {
+  return useLiveQuery(
+    db
+      .select({ colonyId: records.colonyId, at: records.occurredAt })
+      .from(recordFieldValues)
+      .innerJoin(records, eq(records.id, recordFieldValues.recordId))
+      .where(
+        and(eq(recordFieldValues.fieldKey, 'abnormal_signs'), eq(recordFieldValues.valueState, 'present'), isNull(records.deletedAt)),
+      ),
+  );
+}

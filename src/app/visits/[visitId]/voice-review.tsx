@@ -5,6 +5,7 @@ import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import type { StructuredRecordDraft } from '../../../ai';
 import { Button } from '../../../components/Button';
 import { Card } from '../../../components/Card';
+import { CheckBox } from '../../../components/CheckBox';
 import { Chip } from '../../../components/Chip';
 import { PhotoPicker, PickedPhoto } from '../../../components/PhotoPicker';
 import { RecordFieldsForm } from '../../../components/RecordFieldsForm';
@@ -13,6 +14,8 @@ import { ScreenHeader } from '../../../components/ScreenHeader';
 import { TextField } from '../../../components/TextField';
 import { RecordType } from '../../../db/schema';
 import { summarizeInputState } from '../../../features/records/fieldState';
+import { findUnregisteredColonyNumber } from '../../../features/voice/mentionedColony';
+import { pickNextColony } from '../../../features/voice/nextColony';
 import { removePendingCapture } from '../../../features/voice/pendingCaptures';
 import {
   DETAIL_RECORD_TYPES,
@@ -26,9 +29,9 @@ import {
   QUICK_CHECK_FIELDS,
   RECORD_TYPE_LABELS,
 } from '../../../features/records/recordTypesConfig';
-import { useColonies } from '../../../repositories/colonyRepository';
-import { createVoiceCapture, VoiceCaptureSection } from '../../../repositories/recordRepository';
-import { upsertVisitColonyStatus, useVisit } from '../../../repositories/visitRepository';
+import { createColony, useColonies } from '../../../repositories/colonyRepository';
+import { createVoiceCaptureForColonies, VoiceCaptureSection } from '../../../repositories/recordRepository';
+import { useApiaryColoniesWithVisitStatus, useVisit } from '../../../repositories/visitRepository';
 import { colors, fontFamilies, fontSizes, radius, spacing } from '../../../theme/tokens';
 
 // 이 확신도 미만이면 "검토 필요" 배지를 보여준다.
@@ -51,6 +54,8 @@ export default function VoiceReviewScreen() {
     audioDurationSec?: string;
     // 대기열(나중에 처리)에서 이어 온 녹음이면 그 id — 저장에 성공하면 대기열에서 뺀다.
     pendingCaptureId?: string;
+    // 녹음 직후 흐름이면 '1' — 저장하면 저장 완료 화면 대신 다음 봉군 녹음으로 바로 넘어간다.
+    autoNext?: string;
   }>();
   const { visitId, transcript } = params;
   const isLocked = params.colonyLocked === '1';
@@ -58,9 +63,24 @@ export default function VoiceReviewScreen() {
   const { data: visitRows } = useVisit(visitId);
   const visit = visitRows?.[0];
   const { data: apiaryColonies } = useColonies(visit?.apiaryId);
+  const { data: statusRows } = useApiaryColoniesWithVisitStatus(visit?.apiaryId, visitId);
+  const [creatingColony, setCreatingColony] = useState(false);
 
-  const [selectedColonyId, setSelectedColonyId] = useState(params.colonyId || '');
+  // 기록할 봉군들. 한 번 말한 내용이 여러 봉군에 해당하면("오늘 전부 괜찮아") 여러 개를 골라 같은 기록을
+  // 한꺼번에 남긴다. 처음 값은 AI가 찾았거나 봉군이 고정된 한 개(없으면 비어 있음).
+  const [selectedColonyIds, setSelectedColonyIds] = useState<string[]>(params.colonyId ? [params.colonyId] : []);
+  // 봉군을 정했는지 — false면 검토 폼 대신 봉군 선택 단계를 먼저 보여준다.
+  const [colonyConfirmed, setColonyConfirmed] = useState(!!params.colonyId);
+  const selectedColonyId = selectedColonyIds[0] ?? '';
   const selectedColony = apiaryColonies?.find((c) => c.id === selectedColonyId);
+  const multi = selectedColonyIds.length > 1;
+  // 봉군 번호 순서로 보여준다 (목록 기본 순서는 만든 시각이라 일괄 등록한 봉군이 뒤섞여 보인다).
+  const sortedColonies = useMemo(
+    () => [...(apiaryColonies ?? [])].sort((a, b) => Number(a.internalCode) - Number(b.internalCode)),
+    [apiaryColonies],
+  );
+  const toggleColony = (id: string) =>
+    setSelectedColonyIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   const confidenceScore = Number(params.confidenceScore) || 0;
   const needsReview = confidenceScore < CONFIDENCE_REVIEW_THRESHOLD;
@@ -108,7 +128,7 @@ export default function VoiceReviewScreen() {
   const setSection = (recordType: RecordType, next: FieldInputState) => setSections((prev) => ({ ...prev, [recordType]: next }));
 
   const handleSave = async () => {
-    if (!selectedColonyId) return;
+    if (selectedColonyIds.length === 0) return;
 
     // 값이 하나라도 있는 영역만 기록으로 만든다. 빠른 상태(general)가 먼저 와서 대표 기록이 된다.
     const order: RecordType[] = ['general_observation', ...DETAIL_RECORD_TYPES.map((t) => t.recordType)];
@@ -134,44 +154,79 @@ export default function VoiceReviewScreen() {
       }
     }
 
+    // 여러 봉군에 같은 내용을 남기는 건 한 번 저장하면 봉군마다 따로 지워야 해서 한 번 더 확인한다.
+    if (selectedColonyIds.length > 1) {
+      Alert.alert(
+        `${selectedColonyIds.length}개 봉군에 기록할까요?`,
+        '선택한 봉군 모두에 같은 내용을 남겨요. 특이한 봉군은 저장한 뒤 그 봉군의 기록만 따로 고칠 수 있어요.',
+        [
+          { text: '취소', style: 'cancel' },
+          { text: '기록하기', onPress: () => void persist(built) },
+        ],
+      );
+      return;
+    }
+    await persist(built);
+  };
+
+  const persist = async (built: VoiceCaptureSection[]) => {
     setSaving(true);
     try {
-      await createVoiceCapture({
+      await createVoiceCaptureForColonies({
         visitId,
-        colonyId: selectedColonyId,
+        colonyIds: selectedColonyIds,
         sections: built,
         notes: notes.trim() || null,
         rawTranscript: transcript,
         aiConfidenceScore: confidenceScore,
         audioLocalUri: params.audioLocalUri ?? null,
         audioDurationSec: params.audioDurationSec ? Number(params.audioDurationSec) : null,
-        photos,
+        // 여러 봉군에 남길 때 사진은 첫 봉군에만 붙는다 — 아래 화면에서는 그때 사진 첨부를 숨긴다.
+        photos: multi ? [] : photos,
         aiDraftColonyId,
         aiDraftNotes,
       });
-      await upsertVisitColonyStatus(visitId, selectedColonyId, 'done');
       // 기록으로 저장됐으니 대기열에서 뺀다. 원본 음성 파일은 기록에 연결돼 있으므로 지우지 않는다.
       if (params.pendingCaptureId) await removePendingCapture(params.pendingCaptureId);
+
+      // 녹음 직후 흐름이면 "저장 완료" 화면을 거치지 않고 바로 다음 봉군 녹음으로 간다 (장갑 낀 채로 단계를 줄인다).
+      // 쌓여 있던 녹음을 목록에서 열어 저장한 경우에는 그 목록 흐름을 끊지 않도록 기존 화면으로 간다.
+      const remaining = statusRows?.filter((r) => !selectedColonyIds.includes(r.colony.id));
+      const next = params.autoNext === '1' && remaining ? pickNextColony(remaining, undefined)?.colony : undefined;
+      if (next) {
+        router.replace({
+          pathname: '/visits/[visitId]/voice-record',
+          params: {
+            visitId,
+            colonyId: next.id,
+            savedAlias: multi ? `${selectedColonyIds.length}개 봉군` : (selectedColony?.alias ?? ''),
+          },
+        });
+        return;
+      }
       router.replace({
         pathname: '/visits/[visitId]/saved',
         params: {
           visitId,
           colonyId: selectedColonyId,
+          colonyCount: String(selectedColonyIds.length),
           recordTypeTitle: built.map((s) => RECORD_TYPE_LABELS[s.recordType]).join('·'),
         },
       });
     } catch (err) {
       // 저장이 실패해도 녹음과 이 화면의 내용은 그대로다 — 조용히 멈춰 있으면 사용자가 저장됐다고 착각한다.
-      Alert.alert(
-        '저장하지 못했어요',
-        `${err instanceof Error ? err.message : String(err)}
-
-내용은 그대로 남아 있어요. 잠시 뒤 다시 눌러 주세요.`,
-      );
+      Alert.alert('저장하지 못했어요', (err instanceof Error ? err.message : String(err)) + '\n\n내용은 그대로 남아 있어요. 잠시 뒤 다시 눌러 주세요.');
     } finally {
       setSaving(false);
     }
   };
+
+  const selectedColonyNames = (() => {
+    const names = selectedColonyIds
+      .map((id) => apiaryColonies?.find((c) => c.id === id)?.alias)
+      .filter((n): n is string => !!n);
+    return names.length <= 6 ? names.join(', ') : `${names.slice(0, 6).join(', ')} 외 ${names.length - 6}개`;
+  })();
 
   // 요약 모드에서 보여줄 "저장될 내용" — 저장 때와 같은 규칙(summarizeInputState)으로 만든다.
   const summaryBlocks = (['general_observation', ...DETAIL_RECORD_TYPES.map((t) => t.recordType)] as RecordType[])
@@ -189,16 +244,39 @@ export default function VoiceReviewScreen() {
     })
     .filter((block): block is NonNullable<typeof block> => block !== null);
 
+  // 말한 봉군이 아직 등록되지 않은 경우(예: "12번 통…"인데 12번 봉군이 없음) 새로 만들지 제안한다.
+  // 자동으로 만들지는 않는다 — 번호를 잘못 알아들었을 수 있어서 사용자가 누를 때만 만든다.
+  const mentionedNumber = useMemo(
+    () => (apiaryColonies ? findUnregisteredColonyNumber(transcript ?? '', apiaryColonies.map((c) => c.alias)) : null),
+    [apiaryColonies, transcript],
+  );
+  const createMentioned = async (species: 'western' | 'native') => {
+    if (!visit?.apiaryId || mentionedNumber === null) return;
+    setCreatingColony(true);
+    try {
+      const id = await createColony({ apiaryId: visit.apiaryId, alias: `${mentionedNumber}번 봉군`, species });
+      setSelectedColonyIds([id]);
+      setColonyConfirmed(true);
+    } catch (err) {
+      Alert.alert('봉군을 만들지 못했어요', err instanceof Error ? err.message : String(err));
+    } finally {
+      setCreatingColony(false);
+    }
+  };
+
   // 어느 봉군인지 모르면(말한 내용에 봉군이 없었거나 못 찾았을 때) 검토 폼보다 먼저 봉군부터 고르게 한다.
   // 폼 맨 위의 작은 선택칸이면 놓치기 쉽고, 저장 버튼이 잠긴 이유도 알기 어렵다.
-  if (!isLocked && !selectedColonyId) {
+  if (!isLocked && !colonyConfirmed) {
     return (
       <Screen scroll={false} padded={false}>
         <ScreenHeader title="어느 봉군인가요?" onBack={() => router.back()} subdued />
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingTop: spacing.lg, paddingBottom: spacing.xxxl }}>
           <View style={{ gap: spacing.lg }}>
             <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary, lineHeight: 20 }}>
-              말씀하신 내용에서 봉군을 찾지 못했어요. 이 기록을 남길 봉군을 먼저 골라 주세요. 고르면 내용을 확인하고 저장할 수 있어요.
+              {params.colonyId
+                ? '이 기록을 남길 봉군을 골라 주세요.'
+                : '말씀하신 내용에서 봉군을 찾지 못했어요. 이 기록을 남길 봉군을 골라 주세요.'}{' '}
+              여러 봉군에 해당하면 전체 선택 후 빼고 싶은 봉군만 해제하면 한꺼번에 남길 수 있어요.
             </Text>
             {transcript ? (
               <Card size="medium">
@@ -206,6 +284,26 @@ export default function VoiceReviewScreen() {
                 <Text numberOfLines={4} style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary, lineHeight: 20 }}>
                   {transcript}
                 </Text>
+              </Card>
+            ) : null}
+            {mentionedNumber !== null && visit?.apiaryId ? (
+              <Card size="medium" tint="#FBEED9">
+                <View style={{ gap: spacing.sm }}>
+                  <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: '#8A5A0F' }}>
+                    &quot;{mentionedNumber}번&quot;은 등록된 봉군이 아니에요
+                  </Text>
+                  <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.sm, color: '#8A5A0F', lineHeight: 18 }}>
+                    말씀하신 {mentionedNumber}번 봉군을 새로 만들고 이 기록을 남길까요? 아니면 아래에서 기존 봉군을 골라 주세요.
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                    <View style={{ flex: 1 }}>
+                      <Button label="서양벌로 만들기" disabled={creatingColony} onPress={() => void createMentioned('western')} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Button label="토종벌로 만들기" variant="surface" disabled={creatingColony} onPress={() => void createMentioned('native')} />
+                    </View>
+                  </View>
+                </View>
               </Card>
             ) : null}
             {apiaryColonies === undefined ? (
@@ -216,10 +314,24 @@ export default function VoiceReviewScreen() {
               </Text>
             ) : (
               <View style={{ gap: spacing.sm }}>
-                {apiaryColonies.map((c) => (
-                  <Card key={c.id} size="medium" onPress={() => setSelectedColonyId(c.id)}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.body, color: colors.textPrimary }}>{c.alias}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodyLg, color: colors.textPrimary }}>
+                    선택 {selectedColonyIds.length}/{sortedColonies.length}
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: spacing.lg }}>
+                    <Pressable onPress={() => setSelectedColonyIds(sortedColonies.map((c) => c.id))} hitSlop={8}>
+                      <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: colors.primary }}>전체 선택</Text>
+                    </Pressable>
+                    <Pressable onPress={() => setSelectedColonyIds([])} hitSlop={8}>
+                      <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: colors.textMuted }}>전체 해제</Text>
+                    </Pressable>
+                  </View>
+                </View>
+                {sortedColonies.map((c) => (
+                  <Card key={c.id} size="medium" onPress={() => toggleColony(c.id)}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+                      <CheckBox checked={selectedColonyIds.includes(c.id)} />
+                      <Text style={{ flex: 1, fontFamily: fontFamilies.bold, fontSize: fontSizes.body, color: colors.textPrimary }}>{c.alias}</Text>
                       <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.sm, color: colors.textMuted }}>
                         {c.species === 'western' ? '서양벌' : '토종벌'}
                       </Text>
@@ -230,6 +342,13 @@ export default function VoiceReviewScreen() {
             )}
           </View>
         </ScrollView>
+        <View style={{ padding: spacing.xl }}>
+          <Button
+            label={selectedColonyIds.length > 0 ? `${selectedColonyIds.length}개 봉군으로 계속` : '봉군을 선택해 주세요'}
+            disabled={selectedColonyIds.length === 0}
+            onPress={() => setColonyConfirmed(true)}
+          />
+        </View>
       </Screen>
     );
   }
@@ -244,15 +363,22 @@ export default function VoiceReviewScreen() {
               <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodyLg, color: colors.textPrimary }}>{selectedColony.alias}</Text>
             )
           ) : (
-            <View>
-              <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodyLg, color: colors.textPrimary }}>
-                {selectedColonyId === (params.colonyId || '') ? '감지된 봉군' : '선택한 봉군'}
-              </Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md }}>
-                {apiaryColonies?.map((c) => (
-                  <Chip key={c.id} label={c.alias} selected={selectedColonyId === c.id} onPress={() => setSelectedColonyId(c.id)} />
-                ))}
+            <View style={{ gap: spacing.xs }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodyLg, color: colors.textPrimary }}>
+                  {multi
+                    ? `기록할 봉군 ${selectedColonyIds.length}개`
+                    : selectedColonyId === (params.colonyId || '')
+                      ? '감지된 봉군'
+                      : '선택한 봉군'}
+                </Text>
+                <Pressable onPress={() => setColonyConfirmed(false)} hitSlop={10}>
+                  <Text style={{ fontFamily: fontFamilies.bold, fontSize: fontSizes.bodySm, color: colors.primary }}>바꾸기</Text>
+                </Pressable>
               </View>
+              <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.bodySm, color: colors.textSecondary, lineHeight: 20 }}>
+                {selectedColonyNames}
+              </Text>
             </View>
           )}
 
@@ -370,7 +496,13 @@ export default function VoiceReviewScreen() {
             multiline
           />
 
-          <PhotoPicker photos={photos} onChange={setPhotos} />
+          {multi ? (
+            <Text style={{ fontFamily: fontFamilies.semibold, fontSize: fontSizes.sm, color: colors.textMuted, lineHeight: 18 }}>
+              여러 봉군에 한꺼번에 남길 때는 사진을 붙일 수 없어요. 사진은 저장한 뒤 봉군별 기록에서 붙여 주세요.
+            </Text>
+          ) : (
+            <PhotoPicker photos={photos} onChange={setPhotos} />
+          )}
             </>
           )}
         </View>
@@ -378,7 +510,12 @@ export default function VoiceReviewScreen() {
       </ScrollView>
 
       <View style={{ padding: spacing.xl, gap: spacing.sm }}>
-        <Button label={simple ? '이대로 저장' : '검토 완료 · 저장'} onPress={handleSave} loading={saving} disabled={!selectedColonyId} />
+        <Button
+          label={multi ? `${selectedColonyIds.length}개 봉군에 ${simple ? '이대로 ' : ''}저장` : simple ? '이대로 저장' : '검토 완료 · 저장'}
+          onPress={handleSave}
+          loading={saving}
+          disabled={selectedColonyIds.length === 0}
+        />
         {simple && <Button label="수정하기" variant="surface" onPress={() => setExpanded(true)} disabled={saving} />}
       </View>
     </Screen>
